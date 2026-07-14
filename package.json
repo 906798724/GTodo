@@ -1,0 +1,109 @@
+{
+  "name": "gtodo",
+  "version": "1.0.0",
+  "description": "GTD-based Todo List Desktop Application",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "start": "npm run build && npm run start:electron",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "webpack --config webpack.main.config.ts --mode production",
+    "build:renderer": "webpack --config webpack.renderer.config.ts --mode production",
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "webpack serve --config webpack.renderer.config.ts --mode development",
+    "dev:electron": "cross-env NODE_ENV=development cmd /c \"tsc --project tsconfig.main.json && electron ./dist/main/index.js\"",
+    "pack": "npm run build && electron-builder --win nsis",
+    "pack:dir": "npm run build && electron-builder --win --dir",
+    "start:electron": "electron ./dist/main/index.js"
+  },
+  "keywords": [
+    "todo",
+    "gtd",
+    "electron",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.gtodo.app",
+    "productName": "GTodo",
+    "copyright": "Copyright © 2026",
+    "electronVersion": "28.3.3",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+        "to": "sql-wasm.wasm"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GTodo",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "language": "2052"
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@types/sql.js": "^1.4.9",
+    "@types/webpack-env": "^1.18.4",
+    "@vercel/webpack-asset-relocator-loader": "^1.7.3",
+    "concurrently": "^8.2.2",
+    "copy-webpack-plugin": "^12.0.2",
+    "cross-env": "^7.0.3",
+    "css-loader": "^6.10.0",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.13.3",
+    "fork-ts-checker-webpack-plugin": "^9.0.2",
+    "node-libs-browser": "^2.2.1",
+    "node-loader": "^2.0.0",
+    "style-loader": "^3.3.4",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.1.0",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "buffer": "^6.0.3",
+    "events": "^3.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "sql.js": "^1.10.3",
+    "stream-browserify": "^3.0.0",
+    "util": "^0.12.5"
+  }
+}

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Add Task</title>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #fafafa;
+      --bg-tertiary: #f5f5f5;
+      --text-primary: #1a1a1a;
+      --text-secondary: #666666;
+      --text-tertiary: #999999;
+      --border-primary: #f0f0f0;
+      --border-secondary: #e5e5e5;
+      --accent-primary: #1a1a1a;
+      --accent-hover: #333333;
+      --accent-on: #ffffff;
+      --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.08);
+      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.15);
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: #1a1a1a;
+      --bg-secondary: #242424;
+      --bg-tertiary: #2a2a2a;
+      --text-primary: #f5f5f5;
+      --text-secondary: #b0b0b0;
+      --text-tertiary: #777777;
+      --border-primary: #2a2a2a;
+      --border-secondary: #333333;
+      --accent-primary: #f5f5f5;
+      --accent-hover: #ffffff;
+      --accent-on: #0f0f0f;
+      --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      background: var(--bg-primary);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: var(--shadow-lg);
+      width: 480px;
+      border: 1px solid var(--border-primary);
+      transition: all 0.3s ease;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .title {
+      font-size: 13px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
+
+    .title svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-primary);
+    }
+
+    .theme-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border-secondary);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .theme-toggle:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .theme-toggle svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      margin-bottom: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 15px;
+      border: 1px solid var(--border-secondary);
+      border-radius: 10px;
+      outline: none;
+      transition: all 0.2s;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    input::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    input:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+    }
+
+    [data-theme="dark"] input:focus {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+    }
+
+    .options {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .status-options {
+      display: flex;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .status-option {
+      flex: 1;
+      padding: 8px 10px;
+      border: 1px solid var(--border-secondary);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .status-option:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .status-option.active {
+      background: var(--accent-primary);
+      color: var(--accent-on);
+      border-color: var(--accent-primary);
+    }
+
+    .status-option svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .date-input {
+      padding: 8px 10px;
+      border: 1px solid var(--border-secondary);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s;
+      width: 130px;
+      font-family: inherit;
+    }
+
+    .date-input::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.6;
+    }
+
+    .date-input:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .date-input:focus {
+      border-color: var(--accent-primary);
+    }
+
+    .buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .hint {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hint kbd {
+      padding: 2px 5px;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      font-family: -apple-system, BlinkMacSystemFont, monospace;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .btn-cancel {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+
+    .btn-cancel:hover {
+      background: var(--border-secondary);
+      color: var(--text-primary);
+    }
+
+    .btn-add {
+      background: var(--accent-primary);
+      color: var(--accent-on);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-add:hover {
+      background: var(--accent-hover);
+    }
+
+    .btn-add svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .btn-add:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        快速添加任务
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="input-wrapper">
+      <input type="text" id="taskInput" placeholder="输入任务内容，回车确认..." autocomplete="off">
+    </div>
+
+    <div class="options">
+      <div class="status-options">
+        <button class="status-option active" data-status="todo" onclick="selectStatus('todo')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Todo
+        </button>
+        <button class="status-option" data-status="wip" onclick="selectStatus('wip')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          WIP
+        </button>
+        <button class="status-option" data-status="waited" onclick="selectStatus('waited')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Waited
+        </button>
+      </div>
+      <input type="date" id="dateInput" class="date-input" title="期望完成时间">
+    </div>
+
+    <div class="buttons">
+      <div class="hint">
+        <kbd>Enter</kbd> 添加
+        <kbd>Esc</kbd> 取消
+      </div>
+      <button class="btn-cancel" onclick="closeWindow()">取消</button>
+      <button class="btn-add" id="addBtn" onclick="addTask()" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        添加
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById('taskInput');
+    const dateInput = document.getElementById('dateInput');
+    const addBtn = document.getElementById('addBtn');
+    const themeIcon = document.getElementById('themeIcon');
+    let selectedStatus = 'todo';
+    let theme = 'light';
+
+    const sunIcon = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+    const moonIcon = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+
+    function initTheme() {
+      const savedTheme = localStorage.getItem('gtodo-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      applyTheme();
+    }
+
+    function toggleTheme() {
+      theme = theme === 'light' ? 'dark' : 'light';
+      localStorage.setItem('gtodo-theme', theme);
+      applyTheme();
+    }
+
+    function applyTheme() {
+      document.documentElement.setAttribute('data-theme', theme);
+      themeIcon.innerHTML = theme === 'light' ? moonIcon : sunIcon;
+    }
+
+    // 监听主窗口主题变化，实时同步
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'gtodo-theme' && e.newValue && e.newValue !== theme) {
+        theme = e.newValue;
+        applyTheme();
+      }
+    });
+
+    // 监听 storage key 变化（同一窗口也能触发）
+    setInterval(() => {
+      const current = localStorage.getItem('gtodo-theme');
+      if (current && current !== theme) {
+        theme = current;
+        applyTheme();
+      }
+    }, 300);
+
+    function selectStatus(status) {
+      selectedStatus = status;
+      document.querySelectorAll('.status-option').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.status === status);
+      });
+    }
+
+    function updateAddButton() {
+      addBtn.disabled = !input.value.trim();
+    }
+
+    input.focus();
+    input.addEventListener('input', updateAddButton);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        addTask();
+      } else if (e.key === 'Escape') {
+        closeWindow();
+      }
+    });
+
+    async function addTask() {
+      const title = input.value.trim();
+      if (!title) return;
+
+      try {
+        addBtn.disabled = true;
+        await window.electronAPI.createTask({
+          title,
+          description: '',
+          status: selectedStatus,
+          parent_id: null,
+          expected_date: dateInput.value || null,
+        });
+        window.electronAPI.refreshTasks && window.electronAPI.refreshTasks();
+        window.electronAPI.closeQuickInput();
+      } catch (error) {
+        console.error('Failed to add task:', error);
+        addBtn.disabled = false;
+      }
+    }
+
+    function closeWindow() {
+      window.electronAPI.closeQuickInput();
+    }
+
+    initTheme();
+    updateAddButton();
+  </script>
+</body>
+</html>

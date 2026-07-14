@@ -1,0 +1,187 @@
+# ====================================
+# Node.js / Dependencies
+# ====================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json.bak
+# Yarn 相关
+.yarn/
+.yarnrc
+.yarnrc.yml
+.yarn-integrity
+
+# ====================================
+# Build Output
+# ====================================
+# webpack 编译产物
+dist/
+# electron-builder 打包产物
+release/
+# 手动打包的便携版目录（PowerShell 脚本输出）
+dist-pkg/
+# 构建时可能生成的临时目录
+build/
+# out 目录（一些工具默认输出位置）
+out/
+# TypeScript 构建输出（虽然用 dist，但保险起见）
+*.tsbuildinfo
+
+# ====================================
+# Electron Specific
+# ====================================
+# electron-builder 缓存
+.cache-electron/
+# app-builder-bin 缓存
+node_modules/app-builder-bin/
+node_modules/builder-util/
+# 自解压 / 安装程序输出
+*.exe
+*.dmg
+*.deb
+*.AppImage
+*.snap
+# 安装包临时文件
+installer/
+
+# ====================================
+# Database & User Data
+# ====================================
+# 本地 sqlite 数据库（用户在 %APPDATA% 下的库也不要提交）
+gtodo.db
+gtodo.db-journal
+*.db
+*.db-journal
+# SQL 脚本输出
+*.sql.gz
+*.dump
+
+# ====================================
+# Runtime / Cache
+# ====================================
+# TypeScript 编译缓存
+node_modules/.cache/
+# webpack 缓存
+.cache/
+.parcel-cache/
+# npm 缓存
+.npm/
+.eslintcache
+# TypeScript 增量构建文件
+.tsbuildinfo
+*.tsbuildinfo
+# Prettier 缓存
+.prettiercache
+# Jest 缓存
+jest-cache/
+# Storybook 缓存
+storybook-static/
+
+# ====================================
+# Logs
+# ====================================
+logs/
+*.log
+debug.log
+
+# ====================================
+# Environment & IDE
+# ====================================
+# 环境变量文件（可能包含密钥）
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Cursor / AI 编辑器
+.cursor/
+.aider*
+# Windsurf
+.windsurf/
+# Claude Code
+.claude/
+
+# Windows 特定
+$RECYCLE.BIN/
+System Volume Information/
+# macOS 特定（跨平台开发时常见）
+.AppleDouble/
+.LSOverride
+# Linux 特定
+*~
+
+# ====================================
+# Electron / Desktop App
+# ====================================
+# 调试符号
+*.pdb
+*.map
+# 临时测试文件
+*.tmp
+*.bak
+# electron-rebuild 临时文件
+electron-rebuild/
+# native 模块构建产物
+build/Release/
+build/Debug/
+# node-gyp 临时文件
+.node-gyp/
+
+# ====================================
+# Webpack Specific
+# ====================================
+# webpack 输出分析报告（如果使用 webpack-bundle-analyzer）
+report.html
+stats.json
+# ts-loader 缓存
+.cache-loader/
+
+# ====================================
+# Test / Coverage
+# ====================================
+coverage/
+.nyc_output/
+*.lcov
+
+# ====================================
+# Misc
+# ====================================
+# 字体、媒体等可能不需要的二进制资源
+*.local
+*.pid
+*.seed
+# 压缩归档文件（避免误提交大型产物）
+*.zip
+*.tar.gz
+*.rar
+*.7z
+# 截图文件
+*.png.local
+*.jpg.local
+# 视频/音频临时文件
+*.mov
+*.mp4
+*.wav
+
+# ====================================
+# Project Specific (GTodo)
+# ====================================
+# 项目的 SQLite 数据库备份
+gtodo-backup-*.db
+# 用户偏好配置（如果有同步设置）
+.userdata/
+# 测试用打包输出（如果 scripts 里有测试输出）
+test-dist/

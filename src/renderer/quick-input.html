@@ -17,8 +17,8 @@
       --accent-primary: #1a1a1a;
       --accent-hover: #333333;
       --accent-on: #ffffff;
-      --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.08);
-      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.15);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
     }
 
     [data-theme="dark"] {
@@ -33,8 +33,8 @@
       --accent-primary: #f5f5f5;
       --accent-hover: #ffffff;
       --accent-on: #0f0f0f;
-      --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.2);
+      --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
     }
 
     * {
@@ -61,6 +61,7 @@
       width: 480px;
       border: 1px solid var(--border-primary);
       transition: all 0.3s ease;
+      -webkit-app-region: drag;
     }
 
     .header {
@@ -97,6 +98,7 @@
       align-items: center;
       justify-content: center;
       transition: all 0.2s ease;
+      -webkit-app-region: no-drag;
     }
 
     .theme-toggle:hover {
@@ -124,6 +126,7 @@
       transition: all 0.2s;
       background: var(--bg-primary);
       color: var(--text-primary);
+      -webkit-app-region: no-drag;
     }
 
     input::placeholder {
@@ -141,46 +144,7 @@
 
     .options {
       display: flex;
-      gap: 8px;
       margin-bottom: 14px;
-    }
-
-    .status-options {
-      display: flex;
-      gap: 6px;
-      flex: 1;
-    }
-
-    .status-option {
-      flex: 1;
-      padding: 8px 10px;
-      border: 1px solid var(--border-secondary);
-      border-radius: 8px;
-      background: var(--bg-secondary);
-      color: var(--text-secondary);
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-    }
-
-    .status-option:hover {
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-    }
-
-    .status-option.active {
-      background: var(--accent-primary);
-      color: var(--accent-on);
-      border-color: var(--accent-primary);
-    }
-
-    .status-option svg {
-      width: 12px;
-      height: 12px;
     }
 
     .date-input {
@@ -195,6 +159,7 @@
       transition: all 0.2s;
       width: 130px;
       font-family: inherit;
+      -webkit-app-region: no-drag;
     }
 
     .date-input::-webkit-calendar-picker-indicator {
@@ -244,6 +209,7 @@
       cursor: pointer;
       transition: all 0.2s;
       font-family: inherit;
+      -webkit-app-region: no-drag;
     }
 
     .btn-cancel {
@@ -288,11 +254,6 @@
         </svg>
         快速添加任务
       </div>
-      <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">
-        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-      </button>
     </div>
 
     <div class="input-wrapper">
@@ -300,20 +261,6 @@
     </div>
 
     <div class="options">
-      <div class="status-options">
-        <button class="status-option active" data-status="todo" onclick="selectStatus('todo')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          Todo
-        </button>
-        <button class="status-option" data-status="wip" onclick="selectStatus('wip')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          WIP
-        </button>
-        <button class="status-option" data-status="waited" onclick="selectStatus('waited')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Waited
-        </button>
-      </div>
       <input type="date" id="dateInput" class="date-input" title="期望完成时间">
     </div>
 
@@ -336,12 +283,7 @@
     const input = document.getElementById('taskInput');
     const dateInput = document.getElementById('dateInput');
     const addBtn = document.getElementById('addBtn');
-    const themeIcon = document.getElementById('themeIcon');
-    let selectedStatus = 'todo';
     let theme = 'light';
-
-    const sunIcon = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
-    const moonIcon = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
 
     function initTheme() {
       const savedTheme = localStorage.getItem('gtodo-theme');
@@ -350,15 +292,8 @@
       applyTheme();
     }
 
-    function toggleTheme() {
-      theme = theme === 'light' ? 'dark' : 'light';
-      localStorage.setItem('gtodo-theme', theme);
-      applyTheme();
-    }
-
     function applyTheme() {
       document.documentElement.setAttribute('data-theme', theme);
-      themeIcon.innerHTML = theme === 'light' ? moonIcon : sunIcon;
     }
 
     // 监听主窗口主题变化，实时同步
@@ -377,13 +312,6 @@
         applyTheme();
       }
     }, 300);
-
-    function selectStatus(status) {
-      selectedStatus = status;
-      document.querySelectorAll('.status-option').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.status === status);
-      });
-    }
 
     function updateAddButton() {
       addBtn.disabled = !input.value.trim();
@@ -409,7 +337,7 @@
         await window.electronAPI.createTask({
           title,
           description: '',
-          status: selectedStatus,
+          status: 'todo',
           parent_id: null,
           expected_date: dateInput.value || null,
         });

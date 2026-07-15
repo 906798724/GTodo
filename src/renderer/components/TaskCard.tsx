@@ -61,19 +61,41 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
     const diffHour = Math.floor(diffMs / 3600000);
     const diffDay = Math.floor(diffMs / 86400000);
 
-    // 1 分钟内：刚刚
     if (diffMin < 1) return '刚刚';
-    // 1 小时内：xx 分钟前
     if (diffHour < 1) return `${diffMin} 分钟前`;
-    // 24 小时内：xx 小时前
     if (diffDay < 1) return `${diffHour} 小时前`;
-    // 7 天内：xx 天前
     if (diffDay < 7) return `${diffDay} 天前`;
-    // 超过 7 天：显示具体日期
     return date.toLocaleDateString('zh-CN', {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  const formatCompletedAt = (dateString: string | null) => {
+    if (!dateString) return null;
+    const date = parseDate(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHour = Math.floor(diffMs / 3600000);
+    const diffDay = Math.floor(diffMs / 86400000);
+
+    if (diffMin < 1) return '刚刚完成';
+    if (diffHour < 1) return `${diffMin} 分钟前完成`;
+    if (diffDay < 1) return `${diffHour} 小时前完成`;
+    if (diffDay < 7) return `${diffDay} 天前完成`;
+    return date.toLocaleDateString('zh-CN', {
+      month: 'short',
+      day: 'numeric',
+    }) + ' 完成';
+  };
+
+  const isOverdue = () => {
+    if (task.status !== 'todo' || !task.created_at) return false;
+    const date = parseDate(task.created_at);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+    return diffDays >= 7;
   };
 
   return (
@@ -82,7 +104,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
       style={style}
       {...attributes}
       {...listeners}
-      className={`task-card ${task.status} ${isDragging ? 'dragging' : ''}`}
+      className={`task-card ${task.status} ${isDragging ? 'dragging' : ''} ${isOverdue() ? 'overdue' : ''}`}
     >
       <div className="task-title">{task.title}</div>
       <div className="task-meta">
@@ -93,6 +115,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
               <polyline points="12 6 12 12 16 14"/>
             </svg>
             {formatCreatedAt(task.created_at)}
+          </span>
+        )}
+        {task.completed_at && (
+          <span className="task-meta-item" title={formatFullDate(task.completed_at)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            {formatCompletedAt(task.completed_at)}
           </span>
         )}
         {task.description && (

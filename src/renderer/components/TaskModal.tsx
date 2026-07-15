@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Task, TaskStatus } from '../types';
+import { Task } from '../types';
 
 interface TaskModalProps {
   task: Task | null;
@@ -10,7 +10,6 @@ interface TaskModalProps {
 export const TaskModal: React.FC<TaskModalProps> = ({ task, onClose, onSave }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<TaskStatus>('todo');
   const [expectedDate, setExpectedDate] = useState('');
   const [subtasks, setSubtasks] = useState<{ id: number; title: string; completed: boolean }[]>([]);
 
@@ -18,12 +17,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({ task, onClose, onSave }) =
     if (task) {
       setTitle(task.title);
       setDescription(task.description);
-      setStatus(task.status);
       setExpectedDate(task.expected_date || '');
     } else {
       setTitle('');
       setDescription('');
-      setStatus('todo');
       setExpectedDate('');
       setSubtasks([]);
     }
@@ -50,7 +47,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ task, onClose, onSave }) =
     const updatedTask: Partial<Task> = {
       title: title.trim(),
       description: description.trim(),
-      status,
+      status: task ? task.status : 'todo',
       expected_date: expectedDate || null,
     };
 
@@ -111,15 +108,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({ task, onClose, onSave }) =
               onChange={(e) => setDescription(e.target.value)}
               placeholder="输入任务描述（可选）"
             />
-          </div>
-          <div className="form-group">
-            <label>状态</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
-              <option value="todo">📝 Todo</option>
-              <option value="wip">⚡ WIP</option>
-              <option value="waited">⏳ Waited</option>
-              <option value="done">✅ Done</option>
-            </select>
           </div>
           <div className="form-group">
             <label>期望完成时间</label>

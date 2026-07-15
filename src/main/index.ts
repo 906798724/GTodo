@@ -1,15 +1,18 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
-import { initDatabase, getTasks, createTask, updateTask, deleteTask } from './database';
+import fs from 'fs';
+import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult } from './database';
 
 let mainWindow: BrowserWindow | null = null;
 let quickInputWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 function createMainWindow() {
   const screen = require('electron').screen;
   const display = screen.getPrimaryDisplay();
   const { width, height } = display.workAreaSize;
 
+  const iconPath = path.join(__dirname, '../renderer', 'tray-icon.png');
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 800,
@@ -20,6 +23,7 @@ function createMainWindow() {
     title: 'GTodo - GTD Todo List',
     backgroundColor: '#ffffff',
     titleBarStyle: 'default',
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -45,8 +49,15 @@ function createMainWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  mainWindow.on('close', (event) => {
+    event.preventDefault();
+    mainWindow?.hide();
+    quickInputWindow?.close();
+    quickInputWindow = null;
+  });
+
+  mainWindow.on('minimize', () => {
+    mainWindow?.hide();
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -62,10 +73,12 @@ function createMainWindow() {
 }
 
 function createQuickInputWindow() {
-  if (quickInputWindow) {
+  if (quickInputWindow && !quickInputWindow.isDestroyed()) {
+    if (!quickInputWindow.isVisible()) quickInputWindow.show();
     quickInputWindow.focus();
     return;
   }
+  quickInputWindow = null;
 
   quickInputWindow = new BrowserWindow({
     width: 520,
@@ -117,106 +130,102 @@ function applyNativeTheme(isDark: boolean) {
 
 function setupApplicationMenu() {
   const isMac = process.platform === 'darwin';
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [{
-      label: app.name,
-      submenu: [
-        { role: 'about' as const },
-        { type: 'separator' as const },
-        { role: 'services' as const },
-        { type: 'separator' as const },
-        { role: 'hide' as const },
-        { role: 'hideOthers' as const },
-        { role: 'unhide' as const },
-        { type: 'separator' as const },
-        { role: 'quit' as const }
-      ]
-    }] : []),
-    {
-      label: '主页',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-          mainWindow.webContents.send('show-home');
-        }
-      }
-    },
-    {
-      label: 'OKR',
-      submenu: [
-        {
-          label: '查看 OKR',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('show-okr');
-            }
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '新建目标 (Objective)',
-          accelerator: 'CommandOrControl+Shift+O',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('new-objective');
-            }
-          }
-        },
-        {
-          label: '新建关键结果 (Key Result)',
-          accelerator: 'CommandOrControl+Shift+K',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('new-key-result');
-            }
-          }
-        }
-      ]
-    },
-    {
-      label: '已归档task',
-      submenu: [
-        {
-          label: '查看归档列表',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('show-archived');
-            }
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '清空归档',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('clear-archived');
-            }
-          }
-        }
-      ]
-    },
-  ];
+  // 在 Windows 上不设置任何应用菜单——设置入口已移到侧边栏底部
+  const template: Electron.MenuItemConstructorOptions[] = isMac ? [{
+    label: app.name,
+    submenu: [
+      { role: 'about' as const },
+      { type: 'separator' as const },
+      { role: 'services' as const },
+      { type: 'separator' as const },
+      { role: 'hide' as const },
+      { role: 'hideOthers' as const },
+      { role: 'unhide' as const },
+      { type: 'separator' as const },
+      { role: 'quit' as const }
+    ]
+  }] : [];
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 }
 
 async function setupGlobalShortcut() {
-  const shortcuts = ['CommandOrControl+Shift+B', 'CommandOrControl+Alt+B'];
+  // 注意：Ctrl+Shift+0 在 Windows 上常被其他程序（如 NVIDIA ShadowPlay、OneNote、录屏工具）占用
+  // 因此跳过它，只注册相对冷门的组合
+  const shortcuts = ['CommandOrControl+Shift+B', 'CommandOrControl+Alt+Q'];
 
   for (const shortcut of shortcuts) {
     const ret = globalShortcut.register(shortcut, () => {
+      console.log(`[Shortcut] Triggered: ${shortcut}`);
       createQuickInputWindow();
     });
 
     if (ret) {
       console.log(`Global shortcut registered: ${shortcut}`);
-      break;
     } else {
       console.log(`Failed to register shortcut: ${shortcut}`);
     }
   }
+}
+
+function setupTray() {
+  const iconPath = path.join(__dirname, '../renderer', 'tray-icon.png');
+  if (!fs.existsSync(iconPath)) {
+    console.warn('[Tray] Icon not found:', iconPath);
+    return;
+  }
+  tray = new Tray(iconPath);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示窗口',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    {
+      label: '快速添加',
+      accelerator: 'CommandOrControl+Alt+Q',
+      click: () => {
+        createQuickInputWindow();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '开机自启动',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (menuItem) => {
+        app.setLoginItemSettings({
+          openAtLogin: menuItem.checked,
+          path: app.getPath('exe'),
+        });
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        quickInputWindow?.close();
+        quickInputWindow = null;
+        mainWindow?.destroy();
+        mainWindow = null;
+        tray?.destroy();
+        tray = null;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setToolTip('GTodo');
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -224,6 +233,7 @@ app.whenReady().then(async () => {
   createMainWindow();
   setupApplicationMenu();
   setupGlobalShortcut();
+  setupTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -258,11 +268,45 @@ ipcMain.handle('delete-task', async (_event, id) => {
   return await deleteTask(id);
 });
 
+// 每日总结 IPC
+ipcMain.handle('get-summary', async (_event, date: string) => {
+  return await getSummary(date);
+});
+
+ipcMain.handle('get-month-summaries', async (_event, year: number, month: number) => {
+  return await getMonthSummaries(year, month);
+});
+
+ipcMain.handle('upsert-summary', async (_event, date: string, content: string) => {
+  return await upsertSummary(date, content);
+});
+
+ipcMain.handle('delete-summary', async (_event, date: string) => {
+  return await deleteSummary(date);
+});
+
+// OKR IPC
+ipcMain.handle('get-objectives', async () => await getObjectives());
+ipcMain.handle('get-objective', async (_event, id: number) => await getObjective(id));
+ipcMain.handle('create-objective', async (_event, data: any) => await createObjective(data));
+ipcMain.handle('update-objective', async (_event, data: any) => await updateObjective(data));
+ipcMain.handle('delete-objective', async (_event, id: number) => await deleteObjective(id));
+
+ipcMain.handle('get-key-results', async (_event, objectiveId: number) => await getKeyResults(objectiveId));
+ipcMain.handle('get-all-key-results', async () => await getAllKeyResults());
+ipcMain.handle('create-key-result', async (_event, data: any) => await createKeyResult(data));
+ipcMain.handle('update-key-result', async (_event, data: any) => await updateKeyResult(data));
+ipcMain.handle('delete-key-result', async (_event, id: number) => await deleteKeyResult(id));
+
 ipcMain.on('close-quick-input', () => {
   if (quickInputWindow) {
     quickInputWindow.close();
     quickInputWindow = null;
   }
+});
+
+ipcMain.on('open-quick-input', () => {
+  createQuickInputWindow();
 });
 
 ipcMain.on('refresh-tasks', () => {

@@ -55,7 +55,7 @@
         }
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "icon": null
+      "icon": "build/app-icon.png"
     },
     "nsis": {
       "oneClick": false,

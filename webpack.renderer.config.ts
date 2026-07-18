@@ -26,6 +26,10 @@ const config: Configuration = {
           from: path.resolve(__dirname, 'src', 'renderer', 'tray-icon.png'),
           to: path.resolve(__dirname, 'dist', 'renderer', 'tray-icon.png'),
         },
+        {
+          from: path.resolve(__dirname, 'src', 'renderer', 'assets'),
+          to: path.resolve(__dirname, 'dist', 'renderer', 'assets'),
+        },
       ],
     }),
   ],

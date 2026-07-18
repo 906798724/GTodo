@@ -7,13 +7,14 @@ import { Task, Column } from '../types';
 interface TaskColumnProps {
   column: Column;
   tasks: Task[];
+  onView: (task: Task) => void;
   onEdit: (task: Task) => void;
   onDelete: (id: number) => void;
   onAddTask?: () => void;
-  onSummary?: () => void;
+  onShowGtdFlow?: () => void;
 }
 
-export const TaskColumn: React.FC<TaskColumnProps> = ({ column, tasks, onEdit, onDelete, onAddTask, onSummary }) => {
+export const TaskColumn: React.FC<TaskColumnProps> = ({ column, tasks, onView, onEdit, onDelete, onAddTask, onShowGtdFlow }) => {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
   });
@@ -26,15 +27,14 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ column, tasks, onEdit, o
           <h2>{column.title}</h2>
         </div>
         <div className="column-header-right">
-          {onSummary && (
-            <button className="summary-btn" onClick={onSummary} title="今日总结">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
+          {onShowGtdFlow && (
+            <button className="gtd-flow-btn" onClick={onShowGtdFlow} title="GTD流程图">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
               </svg>
-              <span>总结</span>
             </button>
           )}
           {onAddTask && (
@@ -65,6 +65,7 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ column, tasks, onEdit, o
               <TaskCard
                 key={task.id}
                 task={task}
+                onView={onView}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />

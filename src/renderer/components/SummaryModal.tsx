@@ -2,80 +2,57 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Task } from '../types';
 
 interface SummaryModalProps {
-  doneTasks: Task[];
+  doneTasks?: Task[];
   initialContent?: string;
   initialDate?: string; // YYYY-MM-DD
   onClose: () => void;
   onSave: (date: string, content: string) => void | Promise<void>;
+  onDelete?: (date: string) => void | Promise<void>;
+  archivedTasks?: Task[];
+  onViewTask?: (task: Task) => void;
+  onDateChange?: (date: string) => void;
 }
 
-// 引导式模板：3 个维度，每个都提供快捷短语以降低写作心理负担
-const TEMPLATE_SECTIONS = [
-  {
-    icon: '✅',
-    label: '已完成',
-    hint: '今日搞定的事',
-    quickInsert: '✅ 已完成：\n',
-  },
-  {
-    icon: '🚧',
-    label: '进行中',
-    hint: '还在推进的事',
-    quickInsert: '🚧 进行中：\n',
-  },
-  {
-    icon: '💡',
-    label: '感悟 / 下一步',
-    hint: '一句话即可',
-    quickInsert: '💡 下一步：\n',
-  },
-];
 
-export const SummaryModal: React.FC<SummaryModalProps> = ({ doneTasks, initialContent = '', initialDate, onClose, onSave }) => {
+
+const todayStr = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
+
+export const SummaryModal: React.FC<SummaryModalProps> = ({
+  doneTasks = [],
+  initialContent = '',
+  initialDate,
+  onClose,
+  onSave,
+  onDelete,
+  archivedTasks = [],
+  onViewTask,
+  onDateChange,
+}) => {
   const [content, setContent] = useState(initialContent);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [date, setDate] = useState(initialDate || todayStr);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 自动聚焦
+  const isToday = date === todayStr;
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = e.target.value;
+    if (newDate && newDate !== date) {
+      setDate(newDate);
+      onDateChange && onDateChange(newDate);
+    }
+  };
+
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
-  const handleInsert = (text: string) => {
-    const ta = textareaRef.current;
-    if (!ta) {
-      setContent((prev) => prev + (prev ? '\n' : '') + text);
-      return;
-    }
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const before = content.slice(0, start);
-    const after = content.slice(end);
-    // 在文末或已有内容时自动换行
-    const needNewlineBefore = before.length > 0 && !before.endsWith('\n');
-    const inserted = (needNewlineBefore ? '\n' : '') + text;
-    const next = before + inserted + after;
-    setContent(next);
-    // 恢复光标到插入内容末尾
-    requestAnimationFrame(() => {
-      const pos = before.length + inserted.length;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
-    });
-  };
-
-  const handleInsertTaskTitles = () => {
-    if (doneTasks.length === 0) return;
-    const titles = doneTasks.map((t) => `- ${t.title}`).join('\n');
-    handleInsert(`✅ 已完成（来自 Done 列）：\n${titles}`);
-  };
-
   const handleSubmit = async () => {
     if (!content.trim() || saving) return;
-    const date = initialDate || (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    })();
     setSaving(true);
     try {
       await onSave(date, content.trim());
@@ -84,56 +61,86 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({ doneTasks, initialCo
     }
   };
 
+  const handleDelete = async () => {
+    if (!content.trim() || deleting || !onDelete) return;
+    if (!window.confirm('确定要删除这条总结吗？此操作不可撤销。')) return;
+    setDeleting(true);
+    try {
+      await onDelete(date);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal summary-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>今日总结</h2>
+          <div className="summary-header-left">
+            <h2>{isToday ? '今日总结' : '总结'}</h2>
+            <input
+              type="date"
+              className="summary-date-picker"
+              value={date}
+              onChange={handleDateChange}
+              max={todayStr}
+              title="选择总结日期"
+            />
+          </div>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
         </div>
 
         <div className="modal-body">
-          {/* 模板提示区：低心理负担的快速插入 */}
-          <div className="summary-hint">
-            <div className="summary-hint-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="16" x2="12" y2="12"/>
-                <line x1="12" y1="8" x2="12.01" y2="8"/>
-              </svg>
-              提示：3 句话就够了
+          {/* 雁过留痕打开时：侧边展示当日已归档的 task */}
+          {archivedTasks.length > 0 && (
+            <div className="summary-archived-panel">
+              <div className="summary-archived-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 8v13H3V8"/>
+                  <path d="M1 3h22v5H1z"/>
+                  <line x1="10" y1="12" x2="14" y2="12"/>
+                </svg>
+                当日已完成 task（{archivedTasks.length}）
+              </div>
+              <ul className="summary-archived-list">
+                {archivedTasks.map((t) => (
+                  <li
+                    key={t.id}
+                    className="summary-archived-item"
+                    onClick={() => onViewTask && onViewTask(t)}
+                    title="点击查看任务详情"
+                  >
+                    {t.title}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="summary-template-grid">
-              {TEMPLATE_SECTIONS.map((sec) => (
-                <button
-                  key={sec.label}
-                  type="button"
-                  className="summary-template-chip"
-                  onClick={() => handleInsert(sec.quickInsert)}
-                  title={`点击插入「${sec.label}」模板`}
-                >
-                  <span className="summary-template-icon">{sec.icon}</span>
-                  <span className="summary-template-label">{sec.label}</span>
-                  <span className="summary-template-hint">{sec.hint}</span>
-                </button>
-              ))}
-            </div>
-            {doneTasks.length > 0 && (
-              <button
-                type="button"
-                className="summary-insert-done"
-                onClick={handleInsertTaskTitles}
-                title="将 Done 列任务标题一键插入为已完成清单"
-              >
+          )}
+
+          {doneTasks.length > 0 && (
+            <div className="summary-archived-panel">
+              <div className="summary-archived-title">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                一键插入 Done 列 {doneTasks.length} 项已完成
-              </button>
-            )}
-          </div>
+                Done 列已完成任务（{doneTasks.length}）
+              </div>
+              <ul className="summary-archived-list">
+                {doneTasks.map((t) => (
+                  <li
+                    key={t.id}
+                    className="summary-archived-item"
+                    onClick={() => onViewTask && onViewTask(t)}
+                    title="点击查看任务详情"
+                  >
+                    {t.title}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="form-group">
             <label>总结内容</label>
@@ -152,6 +159,16 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({ doneTasks, initialCo
           <button type="button" className="modal-btn cancel" onClick={onClose}>
             取消
           </button>
+          {content.trim() && onDelete && (
+            <button
+              type="button"
+              className="modal-btn delete"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? '删除中...' : '删除总结'}
+            </button>
+          )}
           <button
             type="button"
             className="modal-btn save"

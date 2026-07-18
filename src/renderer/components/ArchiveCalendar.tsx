@@ -26,6 +26,7 @@ export const ArchiveCalendar: React.FC<ArchiveCalendarProps> = ({ refreshKey, on
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth()); // 0-based
   const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [taskCounts, setTaskCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
 
   // 构建当月日历网格（6 行 × 7 列）
@@ -51,18 +52,27 @@ export const ArchiveCalendar: React.FC<ArchiveCalendarProps> = ({ refreshKey, on
     return cells;
   }, [year, month]);
 
-  // 加载当月总结
+  // 加载当月总结 + 每日归档任务数
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    window.electronAPI
-      .getMonthSummaries(year, month)
-      .then((rows: Summary[]) => {
-        if (!cancelled) setSummaries(rows);
+    Promise.all([
+      window.electronAPI.getMonthSummaries(year, month),
+      window.electronAPI.getMonthArchivedTaskCount(year, month),
+    ])
+      .then(([rows, counts]) => {
+        if (!cancelled) {
+          setSummaries(rows);
+          setTaskCounts(counts || {});
+          console.log(`[ArchiveCalendar] year=${year} month=${month} summaries=${rows?.length} taskCounts=`, counts);
+        }
       })
       .catch((err: Error) => {
-        console.error('Failed to load month summaries:', err);
-        if (!cancelled) setSummaries([]);
+        console.error('Failed to load month data:', err);
+        if (!cancelled) {
+          setSummaries([]);
+          setTaskCounts({});
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -140,15 +150,30 @@ export const ArchiveCalendar: React.FC<ArchiveCalendarProps> = ({ refreshKey, on
           const key = formatKey(cell.date);
           const summary = summaryByDate.get(key);
           const hasSummary = !!summary;
+          const taskCount = taskCounts[key] || 0;
+          const hasTasks = taskCount > 0;
           return (
             <button
               key={cell.key}
               type="button"
-              className={`archive-cell ${hasSummary ? 'has-summary' : ''} ${isToday(cell.date) ? 'today' : ''}`}
+              className={`archive-cell ${hasSummary ? 'has-summary' : ''} ${hasTasks ? 'has-tasks' : ''} ${isToday(cell.date) ? 'today' : ''}`}
               onClick={() => onOpenDay(key, summary || null)}
-              title={hasSummary ? `${key}：${previewOf(summary.content, 80)}` : key}
+              title={
+                hasSummary
+                  ? `${key}：${previewOf(summary.content, 80)}${hasTasks ? ` / 完成 ${taskCount} 个任务` : ''}`
+                  : hasTasks
+                    ? `${key}：完成 ${taskCount} 个任务`
+                    : key
+              }
             >
-              <span className="archive-day-num">{cell.date.getDate()}</span>
+              <div className="archive-day-head">
+                <span className="archive-day-num">{cell.date.getDate()}</span>
+                {hasTasks && (
+                  <span className="archive-day-tasks" title={`完成 ${taskCount} 个任务`}>
+                    ✓ {taskCount}
+                  </span>
+                )}
+              </div>
               {hasSummary && (
                 <span className="archive-day-preview">{previewOf(summary.content)}</span>
               )}

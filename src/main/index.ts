@@ -1,11 +1,97 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult } from './database';
+import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, getMilestone, createMilestone, updateMilestone, deleteMilestone } from './database';
 
 let mainWindow: BrowserWindow | null = null;
 let quickInputWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+
+function getTodayDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function autoArchiveDoneTasks(): Promise<void> {
+  try {
+    const today = getTodayDate();
+    const count = await archiveDoneTasksForDate(today);
+    if (count > 0) {
+      console.log(`[AutoArchive] Archived ${count} tasks for ${today}`);
+      // 通知主窗口刷新任务列表
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tasks-updated');
+      }
+    } else {
+      console.log(`[AutoArchive] No tasks to archive for ${today}`);
+    }
+  } catch (err) {
+    console.error('[AutoArchive] Failed to auto archive:', err);
+  }
+}
+
+const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
+
+function getArchiveTime(): string {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (config.archiveTime) {
+        return config.archiveTime;
+      }
+    }
+  } catch (err) {
+    console.error('[Config] Failed to read config:', err);
+  }
+  return '09:00';
+}
+
+function saveArchiveTime(time: string): void {
+  try {
+    let config = {};
+    if (fs.existsSync(CONFIG_FILE)) {
+      config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    }
+    config = { ...config, archiveTime: time };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    restartAutoArchiveTimer();
+  } catch (err) {
+    console.error('[Config] Failed to save config:', err);
+  }
+}
+
+let archiveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setupAutoArchiveTimer(): void {
+  const scheduleNextArchive = () => {
+    if (archiveTimer) {
+      clearTimeout(archiveTimer);
+    }
+    
+    const now = new Date();
+    const [hours, minutes] = getArchiveTime().split(':').map(Number);
+    const todayArchiveTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+    let nextArchive = todayArchiveTime;
+    
+    if (now > todayArchiveTime) {
+      nextArchive = new Date(todayArchiveTime.getTime() + 24 * 60 * 60 * 1000);
+    }
+    
+    const delay = nextArchive.getTime() - now.getTime();
+    console.log(`[AutoArchive] Next archive scheduled at ${nextArchive.toLocaleString()} (${getArchiveTime()})`);
+    
+    archiveTimer = setTimeout(() => {
+      autoArchiveDoneTasks();
+      scheduleNextArchive();
+    }, delay);
+  };
+  
+  scheduleNextArchive();
+}
+
+function restartAutoArchiveTimer(): void {
+  setupAutoArchiveTimer();
+}
 
 function createMainWindow() {
   const screen = require('electron').screen;
@@ -56,8 +142,10 @@ function createMainWindow() {
     quickInputWindow = null;
   });
 
+  // 不拦截 minimize：让窗口正常最小化到 Windows 任务栏（fix：之前误调 hide() 缩到系统角标）
+  // 用户可通过点击任务栏图标还原窗口，或通过托盘菜单“显示窗口”恢复
   mainWindow.on('minimize', () => {
-    mainWindow?.hide();
+    // 留空即可：Electron 默认行为就是最小化到任务栏
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -151,14 +239,20 @@ function setupApplicationMenu() {
 }
 
 async function setupGlobalShortcut() {
-  // 注意：Ctrl+Shift+0 在 Windows 上常被其他程序（如 NVIDIA ShadowPlay、OneNote、录屏工具）占用
-  // 因此跳过它，只注册相对冷门的组合
   const shortcuts = ['CommandOrControl+Shift+B', 'CommandOrControl+Alt+Q'];
 
   for (const shortcut of shortcuts) {
     const ret = globalShortcut.register(shortcut, () => {
       console.log(`[Shortcut] Triggered: ${shortcut}`);
-      createQuickInputWindow();
+      if (!mainWindow) {
+        createMainWindow();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+      setTimeout(() => {
+        mainWindow?.webContents.send('open-task-modal');
+      }, 100);
     });
 
     if (ret) {
@@ -189,7 +283,15 @@ function setupTray() {
       label: '快速添加',
       accelerator: 'CommandOrControl+Alt+Q',
       click: () => {
-        createQuickInputWindow();
+        if (!mainWindow) {
+          createMainWindow();
+        } else {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+        setTimeout(() => {
+          mainWindow?.webContents.send('open-task-modal');
+        }, 100);
       },
     },
     { type: 'separator' },
@@ -228,19 +330,35 @@ function setupTray() {
   });
 }
 
-app.whenReady().then(async () => {
-  await initDatabase();
-  createMainWindow();
-  setupApplicationMenu();
-  setupGlobalShortcut();
-  setupTray();
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
     }
   });
-});
+
+  app.whenReady().then(async () => {
+    await initDatabase();
+    setupAutoArchiveTimer();
+    createMainWindow();
+    setupApplicationMenu();
+    setupGlobalShortcut();
+    setupTray();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  });
+}
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
@@ -285,6 +403,14 @@ ipcMain.handle('delete-summary', async (_event, date: string) => {
   return await deleteSummary(date);
 });
 
+ipcMain.handle('get-archive-time', () => {
+  return getArchiveTime();
+});
+
+ipcMain.handle('set-archive-time', (_event, time: string) => {
+  saveArchiveTime(time);
+});
+
 // OKR IPC
 ipcMain.handle('get-objectives', async () => await getObjectives());
 ipcMain.handle('get-objective', async (_event, id: number) => await getObjective(id));
@@ -298,6 +424,48 @@ ipcMain.handle('create-key-result', async (_event, data: any) => await createKey
 ipcMain.handle('update-key-result', async (_event, data: any) => await updateKeyResult(data));
 ipcMain.handle('delete-key-result', async (_event, id: number) => await deleteKeyResult(id));
 
+// 标签 IPC
+ipcMain.handle('get-tags', async () => await getTags());
+ipcMain.handle('create-tag', async (_event, name: string, color?: string) => await createTag(name, color));
+ipcMain.handle('delete-tag', async (_event, id: number) => await deleteTag(id));
+ipcMain.handle('set-task-tags', async (_event, taskId: number, tagIds: number[]) => await setTaskTags(taskId, tagIds));
+
+// 归档 Done 列任务（点击「总结」时调用）
+ipcMain.handle('archive-done-tasks', async (_event, date: string) => {
+  return await archiveDoneTasksForDate(date);
+});
+
+// 手动触发归档（使用今天日期）——用于调试
+ipcMain.handle('trigger-archive-now', async () => {
+  return await autoArchiveDoneTasks();
+});
+
+// 查询指定日期归档的任务（雁过留痕点击日期时使用）
+ipcMain.handle('get-tasks-by-archive-date', async (_event, date: string) => {
+  return await getTasksByArchiveDate(date);
+});
+
+// 查询某月每天的归档任务数（用于月历显示）
+ipcMain.handle('get-month-archived-task-count', async (_event, year: number, month: number) => {
+  return await getMonthArchivedTaskCount(year, month);
+});
+
+// 专项 IPC
+ipcMain.handle('get-specials', async () => await getSpecials());
+ipcMain.handle('get-special', async (_event, id: number) => await getSpecial(id));
+ipcMain.handle('create-special', async (_event, data: any) => await createSpecial(data));
+ipcMain.handle('update-special', async (_event, id: number, data: any) => await updateSpecial(id, data));
+ipcMain.handle('delete-special', async (_event, id: number) => await deleteSpecial(id));
+ipcMain.handle('get-tasks-by-special', async (_event, specialId: number) => await getTasksBySpecial(specialId));
+ipcMain.handle('set-task-specials', async (_event, taskId: number, specialIds: number[]) => await setTaskSpecials(taskId, specialIds));
+
+// 里程碑 IPC
+ipcMain.handle('get-milestones', async (_event, specialId: number) => await getMilestones(specialId));
+ipcMain.handle('get-milestone', async (_event, id: number) => await getMilestone(id));
+ipcMain.handle('create-milestone', async (_event, data: any) => await createMilestone(data));
+ipcMain.handle('update-milestone', async (_event, id: number, data: any) => await updateMilestone(id, data));
+ipcMain.handle('delete-milestone', async (_event, id: number) => await deleteMilestone(id));
+
 ipcMain.on('close-quick-input', () => {
   if (quickInputWindow) {
     quickInputWindow.close();
@@ -306,7 +474,9 @@ ipcMain.on('close-quick-input', () => {
 });
 
 ipcMain.on('open-quick-input', () => {
-  createQuickInputWindow();
+  if (mainWindow) {
+    mainWindow.webContents.send('open-task-modal');
+  }
 });
 
 ipcMain.on('refresh-tasks', () => {

@@ -2,8 +2,12 @@ import path from 'path';
 import type { Configuration } from 'webpack';
 import { builtinModules } from 'module';
 
+// 主进程 + preload 两个 entry 一起打包到 dist/main/
 const config: Configuration = {
-  entry: './src/main/index.ts',
+  entry: {
+    index: './src/main/index.ts',
+    preload: './src/main/preload.ts',
+  },
   target: 'electron-main',
   module: {
     rules: [
@@ -24,7 +28,7 @@ const config: Configuration = {
     extensions: ['.ts', '.js'],
   },
   output: {
-    filename: 'index.js',
+    filename: '[name].js',
     path: path.resolve(__dirname, 'dist', 'main'),
   },
   node: {

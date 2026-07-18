@@ -6,9 +6,15 @@ import { TaskCard } from './components/TaskCard';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { SummaryModal } from './components/SummaryModal';
+import { GtdFlowModal } from './components/GtdFlowModal';
+import { SpecialPage } from './components/SpecialPage';
 import { ArchiveCalendar } from './components/ArchiveCalendar';
 import { OkrPage } from './components/OkrPage';
-import { Task, TaskStatus, COLUMNS } from './types';
+import { TaskDetailModal } from './components/TaskDetailModal';
+import { TagManagerModal } from './components/TagManagerModal';
+import { TagsPage } from './components/TagsPage';
+import { SettingsPage } from './components/SettingsPage';
+import { Task, Tag, TaskStatus, MAIN_COLUMNS } from './types';
 import './styles/main.css';
 
 declare global {
@@ -32,31 +38,74 @@ declare global {
       createKeyResult: (data: any) => Promise<any>;
       updateKeyResult: (data: any) => Promise<any>;
       deleteKeyResult: (id: number) => Promise<void>;
+      getTags: () => Promise<Tag[]>;
+      createTag: (name: string, color?: string) => Promise<Tag>;
+      deleteTag: (id: number) => Promise<void>;
+      setTaskTags: (taskId: number, tagIds: number[]) => Promise<void>;
+      archiveDoneTasks: (date: string) => Promise<number>;
+      triggerArchiveNow: () => Promise<number>;
+      getTasksByArchiveDate: (date: string) => Promise<Task[]>;
+      getMonthArchivedTaskCount: (year: number, month: number) => Promise<Record<string, number>>;
+      getSpecials: () => Promise<any[]>;
+      getSpecial: (id: number) => Promise<any | null>;
+      createSpecial: (data: { title: string; description?: string; color?: string; due_date?: string | null }) => Promise<any>;
+      updateSpecial: (id: number, data: { title?: string; description?: string; color?: string; due_date?: string | null }) => Promise<void>;
+      deleteSpecial: (id: number) => Promise<void>;
+      getTasksBySpecial: (specialId: number) => Promise<Task[]>;
+      setTaskSpecials: (taskId: number, specialIds: number[]) => Promise<void>;
+      getMilestones: (specialId: number) => Promise<any[]>;
+      getMilestone: (id: number) => Promise<any | null>;
+      createMilestone: (data: any) => Promise<any>;
+      updateMilestone: (id: number, data: any) => Promise<void>;
+      deleteMilestone: (id: number) => Promise<void>;
+      getArchiveTime: () => Promise<string>;
+      setArchiveTime: (time: string) => Promise<void>;
       onTasksUpdated: (callback: () => void) => void;
       onSetTheme: (callback: (theme: string) => void) => void;
       onMenuAction: (callback: (action: string) => void) => void;
+      onOpenTaskModal: (callback: () => void) => void;
     };
   }
 }
 
 const App: React.FC = () => {
+  // 生成本地时间戳（YYYY-MM-DD HH:MM:SS），与主数据库一致，避免时区错位
+  const getLocalTimestamp = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  };
+
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [viewingTask, setViewingTask] = useState<Task | null>(null);
+  /** 「扩展任务」模式：基于此任务创建新任务 */
+  const [extendingFromTask, setExtendingFromTask] = useState<Task | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; taskId: number | null }>({
     open: false,
     taskId: null,
   });
-  const [currentPage, setCurrentPage] = useState<'home' | 'okr' | 'archived'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'okr' | 'special' | 'archived' | 'tags' | 'settings'>('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [gtdFlowOpen, setGtdFlowOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [todaySummary, setTodaySummary] = useState('');
   const [initialSummaryDate, setInitialSummaryDate] = useState<string | undefined>(undefined);
   const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
+  const [dayArchivedTasks, setDayArchivedTasks] = useState<Task[]>([]);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [archiveTime, setArchiveTime] = useState('09:00');
 
   // 当前日期（YYYY-MM-DD，本地时间）
   const todayDateStr = (() => {
@@ -79,7 +128,11 @@ const App: React.FC = () => {
     setTheme(initialTheme);
     document.documentElement.setAttribute('data-theme', initialTheme);
     loadTasks();
-    window.electronAPI.onTasksUpdated(loadTasks);
+    loadTags();
+    window.electronAPI.onTasksUpdated(() => {
+      loadTasks();
+      loadTags();
+    });
 
     // 监听主进程菜单触发的设置主题事件
     window.electronAPI.onSetTheme((newTheme: string) => {
@@ -95,6 +148,15 @@ const App: React.FC = () => {
         localStorage.setItem('gtodo-theme', newTheme);
       }
     });
+
+    // 监听快捷键触发的快速添加任务
+    window.electronAPI.onOpenTaskModal(() => {
+      setEditingTask(null);
+      setIsModalOpen(true);
+    });
+
+    // 加载自动归档时间设置
+    window.electronAPI.getArchiveTime().then(setArchiveTime).catch(console.error);
   }, []);
 
   const toggleTheme = () => {
@@ -102,7 +164,6 @@ const App: React.FC = () => {
     setTheme(newTheme);
     document.documentElement.setAttribute('data-theme', newTheme);
     localStorage.setItem('gtodo-theme', newTheme);
-    // 通知主进程同步菜单栏和标题栏主题
     if ((window as any).electronAPI.setNativeTheme) {
       (window as any).electronAPI.setNativeTheme(newTheme === 'dark');
     }
@@ -114,6 +175,15 @@ const App: React.FC = () => {
       setTasks(loadedTasks);
     } catch (error) {
       console.error('Failed to load tasks:', error);
+    }
+  };
+
+  const loadTags = async () => {
+    try {
+      const loaded = await window.electronAPI.getTags();
+      setTags(loaded);
+    } catch (error) {
+      console.error('Failed to load tags:', error);
     }
   };
 
@@ -137,7 +207,7 @@ const App: React.FC = () => {
 
     const overId = over.id as string | number;
     const overTask = tasks.find((t) => t.id === overId);
-    const overColumn = COLUMNS.find((c) => c.id === overId);
+    const overColumn = MAIN_COLUMNS.find((c) => c.id === overId);
 
     let newStatus: TaskStatus = activeTask.status;
 
@@ -151,7 +221,7 @@ const App: React.FC = () => {
       const updatedTask: Partial<Task> & { id: number } = {
         id: activeTask.id,
         status: newStatus,
-        completed_at: newStatus === 'done' ? new Date().toISOString() : null,
+        completed_at: newStatus === 'done' ? getLocalTimestamp() : null,
       };
 
       window.electronAPI.updateTask(updatedTask).then(loadTasks);
@@ -169,6 +239,7 @@ const App: React.FC = () => {
             description: t.description,
             status: t.status,
             parent_id: t.parent_id,
+            extends_task_id: t.extends_task_id,
             expected_date: t.expected_date,
             completed_at: t.completed_at,
           });
@@ -180,12 +251,39 @@ const App: React.FC = () => {
 
   const handleAddTask = () => {
     setEditingTask(null);
+    setExtendingFromTask(null);
     setIsModalOpen(true);
+  };
+
+  const handleShowGtdFlow = () => {
+    setGtdFlowOpen(true);
+  };
+
+  const handleCloseGtdFlow = () => {
+    setGtdFlowOpen(false);
+  };
+
+  const handleView = (task: Task) => {
+    setViewingTask(task);
   };
 
   const handleEdit = (task: Task) => {
     setEditingTask(task);
+    setExtendingFromTask(null);
     setIsModalOpen(true);
+  };
+
+  /** 「扩展任务」：从详情弹窗触发，关闭详情后打开 TaskModal 扩展模式 */
+  const handleExtend = (task: Task) => {
+    setViewingTask(null);
+    setEditingTask(null);
+    setExtendingFromTask(task);
+    setIsModalOpen(true);
+  };
+
+  /** 「扩展自」链接：跳到原任务详情 */
+  const handleViewSource = (source: Task) => {
+    setViewingTask(source);
   };
 
   const handleDelete = (id: number) => {
@@ -200,13 +298,38 @@ const App: React.FC = () => {
     setConfirmDelete({ open: false, taskId: null });
   };
 
-  const handleSave = async (taskData: Partial<Task>) => {
+  const handleSave = async (taskData: Partial<Task>, tagIds?: number[]) => {
     if ('id' in taskData && taskData.id) {
-      await window.electronAPI.updateTask(taskData as Partial<Task> & { id: number });
+      const updated = await window.electronAPI.updateTask(taskData as Partial<Task> & { id: number });
+      // 同步标签
+      if (tagIds !== undefined) {
+        await window.electronAPI.setTaskTags(updated.id, tagIds);
+      }
     } else {
-      await window.electronAPI.createTask(taskData as Omit<Task, 'id' | 'created_at' | 'completed_at'>);
+      const created = await window.electronAPI.createTask(taskData as Omit<Task, 'id' | 'created_at' | 'completed_at'>);
+      if (tagIds && tagIds.length > 0) {
+        await window.electronAPI.setTaskTags(created.id, tagIds);
+      }
     }
     loadTasks();
+    loadTags();
+  };
+
+  const handleSetTaskTags = async (taskId: number, tagIds: number[]) => {
+    await window.electronAPI.setTaskTags(taskId, tagIds);
+    loadTasks();
+  };
+
+  const handleCreateTag = async (name: string, color: string) => {
+    const t = await window.electronAPI.createTag(name, color);
+    await loadTags();
+    return t;
+  };
+
+  const handleDeleteTag = async (id: number) => {
+    await window.electronAPI.deleteTag(id);
+    await loadTags();
+    await loadTasks(); // 任务上的标签可能也被清掉
   };
 
   const getTasksByStatus = (status: TaskStatus) => {
@@ -223,27 +346,24 @@ const App: React.FC = () => {
             <button
               className={`sidebar-item ${currentPage === 'home' ? 'active' : ''}`}
               onClick={() => setCurrentPage('home')}
-              title="主页"
+              title="一目了然"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                 <polyline points="9 22 9 12 15 12 15 22"/>
               </svg>
-              {!sidebarCollapsed && <span>主页</span>}
+              {!sidebarCollapsed && <span>一目了然</span>}
             </button>
             <button
-              className={`sidebar-item ${currentPage === 'okr' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('okr')}
-              title="OKR"
+              className={`sidebar-item ${currentPage === 'special' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('special')}
+              title="万里长征"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-                <polyline points="10 9 9 9 8 9"/>
+                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                <line x1="4" y1="22" x2="4" y2="15"/>
               </svg>
-              {!sidebarCollapsed && <span>OKR</span>}
+              {!sidebarCollapsed && <span>万里长征</span>}
             </button>
             <button
               className={`sidebar-item ${currentPage === 'archived' ? 'active' : ''}`}
@@ -257,17 +377,36 @@ const App: React.FC = () => {
               </svg>
               {!sidebarCollapsed && <span>雁过留痕</span>}
             </button>
+            <button
+              className={`sidebar-item ${currentPage === 'okr' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('okr')}
+              title="有的放矢"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+              {!sidebarCollapsed && <span>有的放矢</span>}
+            </button>
           </nav>
           <div className="sidebar-divider"></div>
-          <button className="sidebar-item sidebar-add" onClick={() => (window as any).electronAPI.openQuickInput()} title="快速添加 (Ctrl+Shift+0)">
+          <button
+            className={`sidebar-item ${currentPage === 'tags' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('tags')}
+            title="标签"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 5v14M5 12h14"/>
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+              <line x1="7" y1="7" x2="7.01" y2="7"/>
             </svg>
-            {!sidebarCollapsed && <span>快速添加</span>}
+            {!sidebarCollapsed && <span>标签</span>}
           </button>
           <button
-            className={`sidebar-item ${settingsOpen ? 'active' : ''}`}
-            onClick={() => setSettingsOpen(true)}
+            className={`sidebar-item ${currentPage === 'settings' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('settings')}
             title="设置"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -296,15 +435,16 @@ const App: React.FC = () => {
               onDragEnd={handleDragEnd}
             >
               <div className="boards-container">
-                {COLUMNS.map((column) => (
+                {MAIN_COLUMNS.map((column) => (
                   <TaskColumn
                     key={column.id}
                     column={column}
                     tasks={getTasksByStatus(column.id)}
+                    onView={handleView}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
                     onAddTask={column.id === 'todo' ? handleAddTask : undefined}
-                    onSummary={column.id === 'done' ? () => setSummaryOpen(true) : undefined}
+                    onShowGtdFlow={column.id === 'todo' ? handleShowGtdFlow : undefined}
                   />
                 ))}
               </div>
@@ -312,7 +452,7 @@ const App: React.FC = () => {
               <DragOverlay dropAnimation={null}>
                 {activeId && selectedTask ? (
                   <div className="drag-overlay">
-                    <TaskCard task={selectedTask} onEdit={() => {}} onDelete={() => {}} />
+                    <TaskCard task={selectedTask} onView={() => {}} onEdit={() => {}} onDelete={() => {}} />
                   </div>
                 ) : null}
               </DragOverlay>
@@ -323,16 +463,46 @@ const App: React.FC = () => {
             <OkrPage />
           )}
 
+          {currentPage === 'special' && (
+            <SpecialPage />
+          )}
+
           {currentPage === 'archived' && (
             <ArchiveCalendar
               refreshKey={archiveRefreshKey}
-              onOpenDay={(date, summary) => {
+              onOpenDay={async (date, summary) => {
+                // 先打开弹窗（避免 await 时弹窗还没挂载）
                 setSummaryOpen(true);
-                // 通过 setTimeout 让 SummaryModal 挂载后再覆盖初始值
-                setTimeout(() => {
-                  setTodaySummary(summary?.content || '');
-                  setInitialSummaryDate(date);
-                }, 0);
+                setTodaySummary(summary?.content || '');
+                setInitialSummaryDate(date);
+                // 拉取当日归档的 task 列表，弹窗打开后会立刻显示
+                try {
+                  const archived = await window.electronAPI.getTasksByArchiveDate(date);
+                  setDayArchivedTasks(archived || []);
+                } catch (err) {
+                  console.error('Failed to load archived tasks for', date, err);
+                  setDayArchivedTasks([]);
+                }
+              }}
+            />
+          )}
+
+          {currentPage === 'tags' && (
+            <TagsPage
+              tags={tags}
+              onCreate={handleCreateTag}
+              onDelete={handleDeleteTag}
+            />
+          )}
+
+          {currentPage === 'settings' && (
+            <SettingsPage
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              archiveTime={archiveTime}
+              onArchiveTimeChange={(t) => {
+                setArchiveTime(t);
+                window.electronAPI.setArchiveTime(t).catch(console.error);
               }}
             />
           )}
@@ -342,11 +512,37 @@ const App: React.FC = () => {
       {isModalOpen && (
         <TaskModal
           task={editingTask}
+          allTags={tags}
+          extendsFrom={extendingFromTask}
+          onCreateTag={handleCreateTag}
           onClose={() => {
             setIsModalOpen(false);
             setEditingTask(null);
+            setExtendingFromTask(null);
           }}
           onSave={handleSave}
+        />
+      )}
+
+      {gtdFlowOpen && (
+        <GtdFlowModal onClose={handleCloseGtdFlow} />
+      )}
+
+      {viewingTask && (
+        <TaskDetailModal
+          task={viewingTask}
+          allTasks={tasks}
+          onClose={() => setViewingTask(null)}
+          onEdit={(t) => {
+            setViewingTask(null);
+            handleEdit(t);
+          }}
+          onDelete={(id) => {
+            setViewingTask(null);
+            handleDelete(id);
+          }}
+          onExtend={handleExtend}
+          onViewTask={handleViewSource}
         />
       )}
 
@@ -363,20 +559,48 @@ const App: React.FC = () => {
 
       {summaryOpen && (
         <SummaryModal
-          doneTasks={initialSummaryDate === todayDateStr ? getTasksByStatus('done') : []}
+          doneTasks={getTasksByStatus('done')}
           initialContent={todaySummary}
           initialDate={initialSummaryDate || todayDateStr}
+          archivedTasks={dayArchivedTasks}
+          onViewTask={(t) => {
+            // 关闭 summary 弹窗，跳到该 task 详情
+            setSummaryOpen(false);
+            setInitialSummaryDate(undefined);
+            setDayArchivedTasks([]);
+            setViewingTask(t);
+          }}
+          onDateChange={async (date) => {
+            // 日期变更时刷新 summary 内容和归档任务
+            setInitialSummaryDate(date);
+            try {
+              const summary = await window.electronAPI.getSummary(date);
+              setTodaySummary(summary?.content || '');
+              const archived = await window.electronAPI.getTasksByArchiveDate(date);
+              setDayArchivedTasks(archived || []);
+            } catch (err) {
+              console.error('Failed to load date data for', date, err);
+              setTodaySummary('');
+              setDayArchivedTasks([]);
+            }
+          }}
           onClose={() => {
             setSummaryOpen(false);
             setInitialSummaryDate(undefined);
+            setDayArchivedTasks([]);
           }}
           onSave={async (date, content) => {
             try {
               await window.electronAPI.upsertSummary(date, content);
+              const archivedCount = await window.electronAPI.archiveDoneTasks(date);
+              if (archivedCount > 0) {
+                console.log(`[Summary] Archived ${archivedCount} tasks for ${date}`);
+              }
               setArchiveRefreshKey((k) => k + 1);
               if (date === todayDateStr) {
                 setTodaySummary(content);
               }
+              await loadTasks();
               setSummaryOpen(false);
               setInitialSummaryDate(undefined);
             } catch (err) {
@@ -384,56 +608,34 @@ const App: React.FC = () => {
               alert('保存总结失败：' + (err as Error).message);
             }
           }}
+          onDelete={async (date) => {
+            try {
+              await window.electronAPI.deleteSummary(date);
+              setArchiveRefreshKey((k) => k + 1);
+              if (date === todayDateStr) {
+                setTodaySummary('');
+              }
+              setSummaryOpen(false);
+              setInitialSummaryDate(undefined);
+              setDayArchivedTasks([]);
+            } catch (err) {
+              console.error('Failed to delete summary:', err);
+              alert('删除总结失败：' + (err as Error).message);
+            }
+          }}
         />
       )}
 
-      {settingsOpen && (
-        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>设置</h2>
-              <button className="modal-close" onClick={() => setSettingsOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="settings-row">
-                <div className="settings-row-label">
-                  <div className="settings-row-title">深色模式</div>
-                  <div className="settings-row-desc">切换应用为深色主题</div>
-                </div>
-                <label className="settings-switch">
-                  <input
-                    type="checkbox"
-                    checked={theme === 'dark'}
-                    onChange={toggleTheme}
-                  />
-                  <span className="settings-switch-slider"></span>
-                </label>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row-label">
-                  <div className="settings-row-title">快速添加快捷键</div>
-                  <div className="settings-row-desc">在任意位置唤起快速添加窗口</div>
-                </div>
-                <kbd className="settings-kbd">Ctrl + Alt + Q</kbd>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row-label">
-                  <div className="settings-row-title">开发者工具</div>
-                  <div className="settings-row-desc">打开调试面板</div>
-                </div>
-                <kbd className="settings-kbd">F12</kbd>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="modal-btn save" onClick={() => setSettingsOpen(false)}>
-                完成
-              </button>
-            </div>
-          </div>
-        </div>
+      {tagManagerOpen && (
+        <TagManagerModal
+          tags={tags}
+          onClose={() => setTagManagerOpen(false)}
+          onCreate={handleCreateTag}
+          onDelete={handleDeleteTag}
+        />
       )}
+
+      {settingsOpen && null /* 旧的设置弹窗已移除：现在使用独立的设置页面 */}
     </div>
   );
 };

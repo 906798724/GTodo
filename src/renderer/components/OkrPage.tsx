@@ -121,7 +121,7 @@ export const OkrPage: React.FC = () => {
   return (
     <div className="okr-container">
       <div className="okr-header">
-        <h2 className="okr-title">OKR · 目标管理</h2>
+        <h2 className="okr-title">有的放矢 · 目标管理</h2>
         <button
           className="okr-add-btn"
           onClick={() => setObjectiveModal({ open: true, data: null })}
@@ -143,7 +143,7 @@ export const OkrPage: React.FC = () => {
             <circle cx="12" cy="12" r="2"/>
           </svg>
           <p className="okr-empty-title">还没有目标</p>
-          <p className="okr-empty-desc">点击右上角"新建目标"开始记录你的 OKR</p>
+          <p className="okr-empty-desc">点击右上角"新建目标"开始记录你的目标</p>
         </div>
       )}
 

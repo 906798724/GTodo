@@ -112,20 +112,15 @@ export const TagManagerModal: React.FC<TagManagerModalProps> = ({ tags, onClose,
                   >
                     {t.name}
                   </span>
-                  <span className="tag-list-meta">
-                    {t.is_preset === 1 ? '预置' : '自定义'}
-                  </span>
-                  {t.is_preset === 0 && (
-                    <button
-                      type="button"
-                      className="tag-list-delete"
-                      onClick={() => handleDelete(t.id)}
-                      disabled={busy}
-                      title="删除"
-                    >
-                      ×
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="tag-list-delete"
+                    onClick={() => handleDelete(t.id)}
+                    disabled={busy}
+                    title="删除"
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>

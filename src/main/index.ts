@@ -1,10 +1,11 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, getMilestone, createMilestone, updateMilestone, deleteMilestone } from './database';
+import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, getMilestone, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds, getTaskObjectiveIds, getTaskKeyResultIds, setTaskObjectives, setTaskKeyResults } from './database';
 
 let mainWindow: BrowserWindow | null = null;
 let quickInputWindow: BrowserWindow | null = null;
+let taskOnlyWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
 function getTodayDate(): string {
@@ -199,6 +200,57 @@ function createQuickInputWindow() {
   });
 }
 
+/**
+ * 「仅任务弹窗」窗口（Ctrl+Alt+Q 触发）：
+ * - 不显示主窗口
+ * - 独立小窗口，加载主页 URL（带 ?mode=task-only），主页会隐藏 chrome 只显示 TaskModal
+ * - 无边框、透明背景、置顶
+ */
+function createTaskOnlyWindow() {
+  if (taskOnlyWindow && !taskOnlyWindow.isDestroyed()) {
+    if (!taskOnlyWindow.isVisible()) taskOnlyWindow.show();
+    taskOnlyWindow.focus();
+    return;
+  }
+
+  const screen = require('electron').screen;
+  const display = screen.getPrimaryDisplay();
+  const { width, height } = display.workAreaSize;
+  const winW = 720;
+  const winH = 760;
+
+  taskOnlyWindow = new BrowserWindow({
+    width: winW,
+    height: winH,
+    x: Math.floor((width - winW) / 2),
+    y: Math.floor((height - winH) / 2),
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    title: 'GTodo - 新建任务',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  // 加载主页 URL，带 query 让主页进入 task-only 模式
+  if (process.env.NODE_ENV === 'development') {
+    taskOnlyWindow.loadURL('http://localhost:3000/?mode=task-only');
+  } else {
+    taskOnlyWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { mode: 'task-only' },
+    });
+  }
+
+  taskOnlyWindow.on('closed', () => {
+    taskOnlyWindow = null;
+  });
+}
+
 function applyNativeTheme(isDark: boolean) {
   // 设置系统菜单栏/标题栏主题
   nativeTheme.themeSource = isDark ? 'dark' : 'light';
@@ -239,27 +291,27 @@ function setupApplicationMenu() {
 }
 
 async function setupGlobalShortcut() {
-  const shortcuts = ['CommandOrControl+Shift+B', 'CommandOrControl+Alt+Q'];
-
-  for (const shortcut of shortcuts) {
-    const ret = globalShortcut.register(shortcut, () => {
-      console.log(`[Shortcut] Triggered: ${shortcut}`);
-      if (!mainWindow) {
-        createMainWindow();
-      } else {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-      setTimeout(() => {
-        mainWindow?.webContents.send('open-task-modal');
-      }, 100);
-    });
-
-    if (ret) {
-      console.log(`Global shortcut registered: ${shortcut}`);
+  // Ctrl+Shift+B → 显示主窗口（沿用旧行为）
+  globalShortcut.register('CommandOrControl+Shift+B', () => {
+    console.log('[Shortcut] Triggered: CommandOrControl+Shift+B');
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createMainWindow();
     } else {
-      console.log(`Failed to register shortcut: ${shortcut}`);
+      mainWindow.show();
+      mainWindow.focus();
     }
+  });
+
+  // Ctrl+Alt+Q → 弹出独立的「仅任务弹窗」窗口（不显示主窗口）
+  const altQRet = globalShortcut.register('CommandOrControl+Alt+Q', () => {
+    console.log('[Shortcut] Triggered: CommandOrControl+Alt+Q');
+    createTaskOnlyWindow();
+  });
+
+  if (altQRet) {
+    console.log('Global shortcut registered: CommandOrControl+Alt+Q');
+  } else {
+    console.log('Failed to register shortcut: CommandOrControl+Alt+Q');
   }
 }
 
@@ -427,6 +479,9 @@ ipcMain.handle('delete-key-result', async (_event, id: number) => await deleteKe
 // 标签 IPC
 ipcMain.handle('get-tags', async () => await getTags());
 ipcMain.handle('create-tag', async (_event, name: string, color?: string) => await createTag(name, color));
+ipcMain.handle('update-tag', async (_event, id: number, name: string, color?: string) =>
+  await updateTag(id, name, color)
+);
 ipcMain.handle('delete-tag', async (_event, id: number) => await deleteTag(id));
 ipcMain.handle('set-task-tags', async (_event, taskId: number, tagIds: number[]) => await setTaskTags(taskId, tagIds));
 
@@ -466,10 +521,24 @@ ipcMain.handle('create-milestone', async (_event, data: any) => await createMile
 ipcMain.handle('update-milestone', async (_event, id: number, data: any) => await updateMilestone(id, data));
 ipcMain.handle('delete-milestone', async (_event, id: number) => await deleteMilestone(id));
 
+// 任务关联有的放矢（OKR）IPC
+ipcMain.handle('get-task-specials', async (_event, taskId: number) => await getTaskSpecialIds(taskId));
+ipcMain.handle('get-task-objective-ids', async (_event, taskId: number) => await getTaskObjectiveIds(taskId));
+ipcMain.handle('get-task-key-result-ids', async (_event, taskId: number) => await getTaskKeyResultIds(taskId));
+ipcMain.handle('set-task-objectives', async (_event, taskId: number, ids: number[]) => await setTaskObjectives(taskId, ids));
+ipcMain.handle('set-task-key-results', async (_event, taskId: number, ids: number[]) => await setTaskKeyResults(taskId, ids));
+
 ipcMain.on('close-quick-input', () => {
   if (quickInputWindow) {
     quickInputWindow.close();
     quickInputWindow = null;
+  }
+});
+
+ipcMain.on('close-task-only-window', () => {
+  if (taskOnlyWindow && !taskOnlyWindow.isDestroyed()) {
+    taskOnlyWindow.close();
+    taskOnlyWindow = null;
   }
 });
 

@@ -171,7 +171,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onView, onEdit, onDele
                 key={t.id}
                 className="task-tag-chip"
                 style={{ background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}
-                title={t.is_preset ? '预置标签' : '自定义标签'}
+                title={t.name}
               >
                 {t.name}
               </span>

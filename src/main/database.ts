@@ -93,11 +93,12 @@ function getDbPath(): string {
 //   1. 增加 SCHEMA_VERSION
 //   2. 在 MIGRATIONS 数组中添加对应的迁移函数
 // 旧的数据库会在启动时自动应用所有未执行的迁移
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 13;
 
 interface Migration {
   fromVersion: number;
   toVersion: number;
+  description?: string;
   up: (db: any) => void;
 }
 
@@ -332,6 +333,45 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    fromVersion: 11,
+    toVersion: 12,
+    description: '创建 task_objectives 和 task_key_results 关联表，支持任务关联有的放矢（OKR）',
+    up: (db: any) => {
+      // 任务 ↔ Objective（万里长征之目标）多对多关联表
+      db.run(`
+        CREATE TABLE IF NOT EXISTS task_objectives (
+          task_id INTEGER NOT NULL,
+          objective_id INTEGER NOT NULL,
+          PRIMARY KEY (task_id, objective_id),
+          FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+          FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE
+        )
+      `);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_task_objectives_objective ON task_objectives(objective_id)`);
+
+      // 任务 ↔ Key Result（万里长征之关键结果）多对多关联表
+      db.run(`
+        CREATE TABLE IF NOT EXISTS task_key_results (
+          task_id INTEGER NOT NULL,
+          key_result_id INTEGER NOT NULL,
+          PRIMARY KEY (task_id, key_result_id),
+          FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+          FOREIGN KEY (key_result_id) REFERENCES key_results(id) ON DELETE CASCADE
+        )
+      `);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_task_key_results_kr ON task_key_results(key_result_id)`);
+    },
+  },
+  {
+    fromVersion: 12,
+    toVersion: 13,
+    description: '「标签」系统不再区分预置/自定义：把原有预置标签标记为普通标签，允许自由编辑/删除',
+    up: (db: any) => {
+      // 把所有 is_preset=1 的历史预置标签（攻城略地、鼎力相助、借力打力）改为 0
+      db.run(`UPDATE tags SET is_preset = 0 WHERE is_preset = 1`);
+    },
+  },
 ];
 
 // 获取当前数据库版本（通过 PRAGMA user_version）
@@ -361,23 +401,23 @@ function runMigrations(db: any): void {
     return; // 已经是最新版本
   }
 
-  // 按顺序执行迁移
-  for (const migration of MIGRATIONS) {
-    if (migration.fromVersion >= currentVersion && migration.toVersion <= SCHEMA_VERSION) {
-      try {
-        console.log(`[Database] Running migration ${migration.fromVersion} -> ${migration.toVersion}`);
-        migration.up(db);
-        setCurrentVersion(db, migration.toVersion);
-      } catch (err) {
-        console.error(`[Database] Migration failed: ${migration.fromVersion} -> ${migration.toVersion}`, err);
-        throw err;
-      }
+  // 链式执行迁移：从 currentVersion 升到 SCHEMA_VERSION，
+  // 每一步严格匹配 fromVersion === currentVersion（已升级后 currentVersion 递增）
+  while (getCurrentVersion(db) < SCHEMA_VERSION) {
+    const nextVersion = getCurrentVersion(db);
+    const migration = MIGRATIONS.find((m) => m.fromVersion === nextVersion);
+    if (!migration) {
+      console.error(`[Database] No migration found for version ${nextVersion}, aborting at version ${nextVersion}`);
+      throw new Error(`Missing migration for schema version ${nextVersion}`);
     }
-  }
-
-  // 如果是全新数据库，直接设置版本
-  if (currentVersion === 0) {
-    setCurrentVersion(db, SCHEMA_VERSION);
+    try {
+      console.log(`[Database] Running migration ${migration.fromVersion} -> ${migration.toVersion}`);
+      migration.up(db);
+      setCurrentVersion(db, migration.toVersion);
+    } catch (err) {
+      console.error(`[Database] Migration failed: ${migration.fromVersion} -> ${migration.toVersion}`, err);
+      throw err;
+    }
   }
 }
 
@@ -501,6 +541,29 @@ export async function initDatabase(): Promise<void> {
   `);
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_specials_special ON task_specials(special_id)`);
+
+  // OKR 关联表（v12）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS task_objectives (
+      task_id INTEGER NOT NULL,
+      objective_id INTEGER NOT NULL,
+      PRIMARY KEY (task_id, objective_id),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_objectives_objective ON task_objectives(objective_id)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS task_key_results (
+      task_id INTEGER NOT NULL,
+      key_result_id INTEGER NOT NULL,
+      PRIMARY KEY (task_id, key_result_id),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (key_result_id) REFERENCES key_results(id) ON DELETE CASCADE
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_key_results_kr ON task_key_results(key_result_id)`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS milestones (
@@ -699,12 +762,10 @@ export async function archiveDoneTasksForDate(date: string): Promise<number> {
   if (!db) {
     throw new Error('Database not initialized');
   }
-  const archivedAt = getLocalTimestamp();
-  // date 参数是「本地日期 YYYY-MM-DD」，表示要归档这一天完成的任务。
-  // 计算本地日期的 [00:00:00, 24:00:00) 区间毫秒数。
-  // 关键：completed_at 在历史数据里可能是 ISO 字符串（UTC）或本地时间戳，
-  // 必须先解析为本地 Date 对象，再取本地日期 YYYY-MM-DD 与参数 date 比较。
+  // 「雁过留痕」按任务实际完成日期（completed_at 本地日期）展示，
+  // 因此 archived_at 存为完成日期对应时间戳（00:00:00），以便 LIKE 'YYYY-MM-DD%' 正确分组
   const targetLocalDate = date;
+  const archiveTimestamp = `${date} 00:00:00`;
 
   const candidates = db.exec(
     `SELECT id, completed_at FROM tasks
@@ -755,7 +816,7 @@ export async function archiveDoneTasksForDate(date: string): Promise<number> {
   const placeholders = matchIds.map(() => '?').join(',');
   db.run(
     `UPDATE tasks SET archived_at = ? WHERE id IN (${placeholders})`,
-    [archivedAt, ...matchIds]
+    [archiveTimestamp, ...matchIds]
   );
   saveDatabase();
   return matchIds.length;
@@ -1032,6 +1093,94 @@ export async function setTaskSpecials(taskId: number, specialIds: number[]): Pro
     }
     db.run(`INSERT INTO task_specials (task_id, special_id) VALUES ${placeholders}`, params);
   }
+}
+
+// =====================================================
+// 有的放矢（OKR）任务关联
+// =====================================================
+
+/** 获取任务关联的所有万里长征 ID */
+export async function getTaskSpecialIds(taskId: number): Promise<number[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(`SELECT special_id FROM task_specials WHERE task_id = ?`, [taskId]);
+  if (result.length === 0) return [];
+  return result[0].values.map((row: any[]) => row[0] as number);
+}
+
+/** 获取任务关联的所有 Objective ID */
+export async function getTaskObjectiveIds(taskId: number): Promise<number[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(`SELECT objective_id FROM task_objectives WHERE task_id = ?`, [taskId]);
+  if (result.length === 0) return [];
+  return result[0].values.map((row: any[]) => row[0] as number);
+}
+
+/** 获取任务关联的所有 Key Result ID */
+export async function getTaskKeyResultIds(taskId: number): Promise<number[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(`SELECT key_result_id FROM task_key_results WHERE task_id = ?`, [taskId]);
+  if (result.length === 0) return [];
+  return result[0].values.map((row: any[]) => row[0] as number);
+}
+
+/** 设置任务关联的 Objective（覆盖式写入），同时返回变化的事务函数 */
+export async function setTaskObjectives(taskId: number, objectiveIds: number[]): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  db.run('DELETE FROM task_objectives WHERE task_id = ?', [taskId]);
+  if (objectiveIds.length > 0) {
+    const placeholders = objectiveIds.map(() => '(?, ?)').join(', ');
+    const params: number[] = [];
+    for (const oid of objectiveIds) params.push(taskId, oid);
+    db.run(`INSERT INTO task_objectives (task_id, objective_id) VALUES ${placeholders}`, params);
+  }
+}
+
+/** 设置任务关联的 Key Result（覆盖式写入） */
+export async function setTaskKeyResults(taskId: number, keyResultIds: number[]): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  db.run('DELETE FROM task_key_results WHERE task_id = ?', [taskId]);
+  if (keyResultIds.length > 0) {
+    const placeholders = keyResultIds.map(() => '(?, ?)').join(', ');
+    const params: number[] = [];
+    for (const krid of keyResultIds) params.push(taskId, krid);
+    db.run(`INSERT INTO task_key_results (task_id, key_result_id) VALUES ${placeholders}`, params);
+  }
+}
+
+/** 获取某个 Objective 下的所有未归档任务 */
+export async function getTasksByObjective(objectiveId: number): Promise<Task[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(
+    `SELECT t.* FROM tasks t JOIN task_objectives tobj ON t.id = tobj.task_id WHERE tobj.objective_id = ? AND t.archived_at IS NULL ORDER BY t.created_at DESC`,
+    [objectiveId]
+  );
+  if (result.length === 0) return [];
+  const columns = result[0].columns;
+  return result[0].values.map((values: any[]) => {
+    const obj: Partial<Task> = {};
+    columns.forEach((col: string, index: number) => {
+      obj[col as keyof Task] = values[index] ?? null;
+    });
+    return obj as Task;
+  });
+}
+
+/** 获取某个 Key Result 下的所有未归档任务 */
+export async function getTasksByKeyResult(keyResultId: number): Promise<Task[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(
+    `SELECT t.* FROM tasks t JOIN task_key_results tkr ON t.id = tkr.task_id WHERE tkr.key_result_id = ? AND t.archived_at IS NULL ORDER BY t.created_at DESC`,
+    [keyResultId]
+  );
+  if (result.length === 0) return [];
+  const columns = result[0].columns;
+  return result[0].values.map((values: any[]) => {
+    const obj: Partial<Task> = {};
+    columns.forEach((col: string, index: number) => {
+      obj[col as keyof Task] = values[index] ?? null;
+    });
+    return obj as Task;
+  });
 }
 
 // =====================================================
@@ -1407,15 +1556,32 @@ export async function createTag(name: string, color: string = '#4a4339'): Promis
   return mapRow<Tag>(out[0].columns, out[0].values[0]);
 }
 
-/** 删除标签（仅允许删除用户自定义标签，预置标签不可删） */
+/** 删除标签（v13 起所有标签均可自由删除，不再区分预置/自定义） */
 export async function deleteTag(id: number): Promise<void> {
   if (!db) throw new Error('Database not initialized');
-  const r = db.exec('SELECT is_preset FROM tags WHERE id = ?', [id]);
+  const r = db.exec('SELECT id FROM tags WHERE id = ?', [id]);
   if (r.length === 0 || r[0].values.length === 0) return;
-  if ((r[0].values[0][0] as number) === 1) {
-    throw new Error('预置标签不可删除');
-  }
   db.run('DELETE FROM tags WHERE id = ?', [id]);
+  saveDatabase();
+}
+
+/** 更新标签名称/颜色（v13 起所有标签均可自由编辑） */
+export async function updateTag(id: number, name: string, color?: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  const trimmed = (name || '').trim();
+  if (!trimmed) throw new Error('标签名不能为空');
+  try {
+    if (color !== undefined) {
+      db.run('UPDATE tags SET name = ?, color = ? WHERE id = ?', [trimmed, color, id]);
+    } else {
+      db.run('UPDATE tags SET name = ? WHERE id = ?', [trimmed, id]);
+    }
+  } catch (err: any) {
+    if (String(err?.message || '').includes('UNIQUE')) {
+      throw new Error('标签名已存在');
+    }
+    throw err;
+  }
   saveDatabase();
 }
 

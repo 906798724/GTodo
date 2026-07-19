@@ -4,6 +4,7 @@ import { Tag } from '../types';
 interface TagsPageProps {
   tags: Tag[];
   onCreate: (name: string, color: string) => Promise<Tag | void>;
+  onUpdate: (id: number, name: string, color: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }
 
@@ -13,11 +14,17 @@ const COLOR_PRESETS = [
   '#4a4339', '#6b6357',
 ];
 
-export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onDelete }) => {
+export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onUpdate, onDelete }) => {
   const [name, setName] = useState('');
   const [color, setColor] = useState(COLOR_PRESETS[0]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // 编辑态：editingId 持有正在编辑的 tag id
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState(COLOR_PRESETS[0]);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const handleAdd = async () => {
     if (!name.trim()) {
@@ -32,6 +39,38 @@ export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onDelete }) 
       setColor(COLOR_PRESETS[0]);
     } catch (err: any) {
       setError(err?.message || '创建失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStartEdit = (t: Tag) => {
+    setEditingId(t.id);
+    setEditName(t.name);
+    setEditColor(t.color);
+    setEditError(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    const trimmed = editName.trim();
+    if (!trimmed) {
+      setEditError('标签名不能为空');
+      return;
+    }
+    setBusy(true);
+    setEditError(null);
+    try {
+      await onUpdate(editingId, trimmed, editColor);
+      setEditingId(null);
+    } catch (err: any) {
+      setEditError(err?.message || '更新失败');
     } finally {
       setBusy(false);
     }
@@ -107,30 +146,94 @@ export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onDelete }) 
             <div className="task-detail-empty">暂无标签</div>
           ) : (
             <div className="tag-list">
-              {tags.map((t) => (
-                <div key={t.id} className="tag-list-item">
-                  <span
-                    className="task-tag-chip"
-                    style={{ background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}
-                  >
-                    {t.name}
-                  </span>
-                  <span className="tag-list-meta">
-                    {t.is_preset === 1 ? '预置' : '自定义'}
-                  </span>
-                  {t.is_preset === 0 && (
-                    <button
-                      type="button"
-                      className="tag-list-delete"
-                      onClick={() => handleDelete(t.id)}
-                      disabled={busy}
-                      title="删除"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
+              {tags.map((t) => {
+                const editing = editingId === t.id;
+                return (
+                  <div key={t.id} className="tag-list-item">
+                    {editing ? (
+                      <>
+                        <div className="tag-color-dot active" style={{ background: editColor, flexShrink: 0 }} />
+                        <input
+                          type="text"
+                          className="tag-edit-input"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          maxLength={20}
+                          disabled={busy}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveEdit();
+                            } else if (e.key === 'Escape') {
+                              handleCancelEdit();
+                            }
+                          }}
+                        />
+                        <div className="tag-color-row tag-color-row-inline">
+                          {COLOR_PRESETS.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              className={`tag-color-dot ${editColor === c ? 'active' : ''}`}
+                              style={{ background: c }}
+                              onClick={() => setEditColor(c)}
+                              aria-label={`选择颜色 ${c}`}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="modal-btn save tag-list-save"
+                          onClick={handleSaveEdit}
+                          disabled={busy || !editName.trim()}
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          className="modal-btn cancel tag-list-cancel"
+                          onClick={handleCancelEdit}
+                          disabled={busy}
+                        >
+                          取消
+                        </button>
+                        {editError && <span className="tag-error-inline">{editError}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          className="task-tag-chip"
+                          style={{
+                            background: `${t.color}22`,
+                            color: t.color,
+                            borderColor: `${t.color}55`,
+                          }}
+                        >
+                          {t.name}
+                        </span>
+                        <button
+                          type="button"
+                          className="tag-list-edit"
+                          onClick={() => handleStartEdit(t)}
+                          disabled={busy}
+                          title="编辑"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="tag-list-delete"
+                          onClick={() => handleDelete(t.id)}
+                          disabled={busy}
+                          title="删除"
+                        >
+                          ×
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

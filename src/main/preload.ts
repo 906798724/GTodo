@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 标签
   getTags: () => ipcRenderer.invoke('get-tags'),
   createTag: (name: string, color?: string) => ipcRenderer.invoke('create-tag', name, color),
+  updateTag: (id: number, name: string, color?: string) =>
+    ipcRenderer.invoke('update-tag', id, name, color),
   deleteTag: (id: number) => ipcRenderer.invoke('delete-tag', id),
   setTaskTags: (taskId: number, tagIds: number[]) => ipcRenderer.invoke('set-task-tags', taskId, tagIds),
   // 归档 Done 列任务（点击「总结」时调用）
@@ -47,6 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createMilestone: (data: any) => ipcRenderer.invoke('create-milestone', data),
   updateMilestone: (id: number, data: any) => ipcRenderer.invoke('update-milestone', id, data),
   deleteMilestone: (id: number) => ipcRenderer.invoke('delete-milestone', id),
+  // 任务关联有的放矢（OKR）
+  getTaskSpecials: (taskId: number) => ipcRenderer.invoke('get-task-specials', taskId),
+  getTaskObjectiveIds: (taskId: number) => ipcRenderer.invoke('get-task-objective-ids', taskId),
+  getTaskKeyResultIds: (taskId: number) => ipcRenderer.invoke('get-task-key-result-ids', taskId),
+  setTaskObjectives: (taskId: number, ids: number[]) => ipcRenderer.invoke('set-task-objectives', taskId, ids),
+  setTaskKeyResults: (taskId: number, ids: number[]) => ipcRenderer.invoke('set-task-key-results', taskId, ids),
   // 自动归档时间配置
   getArchiveTime: () => ipcRenderer.invoke('get-archive-time'),
   setArchiveTime: (time: string) => ipcRenderer.invoke('set-archive-time', time),
@@ -55,6 +63,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   closeQuickInput: () => ipcRenderer.send('close-quick-input'),
   openQuickInput: () => ipcRenderer.send('open-quick-input'),
+  /** task-only 模式下关闭独立窗口 */
+  closeTaskOnlyWindow: () => ipcRenderer.send('close-task-only-window'),
   refreshTasks: () => ipcRenderer.send('refresh-tasks'),
   setNativeTheme: (isDark: boolean) => ipcRenderer.send('set-native-theme', isDark),
   onSetTheme: (callback: (theme: string) => void) => {

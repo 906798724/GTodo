@@ -40,6 +40,7 @@ declare global {
       deleteKeyResult: (id: number) => Promise<void>;
       getTags: () => Promise<Tag[]>;
       createTag: (name: string, color?: string) => Promise<Tag>;
+      updateTag: (id: number, name: string, color?: string) => Promise<void>;
       deleteTag: (id: number) => Promise<void>;
       setTaskTags: (taskId: number, tagIds: number[]) => Promise<void>;
       archiveDoneTasks: (date: string) => Promise<number>;
@@ -53,6 +54,8 @@ declare global {
       deleteSpecial: (id: number) => Promise<void>;
       getTasksBySpecial: (specialId: number) => Promise<Task[]>;
       setTaskSpecials: (taskId: number, specialIds: number[]) => Promise<void>;
+      // 任务关联万里长征
+      getTaskSpecials: (taskId: number) => Promise<number[]>;
       getMilestones: (specialId: number) => Promise<any[]>;
       getMilestone: (id: number) => Promise<any | null>;
       createMilestone: (data: any) => Promise<any>;
@@ -69,6 +72,10 @@ declare global {
 }
 
 const App: React.FC = () => {
+  // 检测是否处于「仅任务弹窗」模式（用于 Ctrl+Alt+Q 快捷键触发的独立小窗口）
+  const urlParams = new URLSearchParams(window.location.search);
+  const isTaskOnlyMode = urlParams.get('mode') === 'task-only';
+
   // 生成本地时间戳（YYYY-MM-DD HH:MM:SS），与主数据库一致，避免时区错位
   const getLocalTimestamp = (): string => {
     const now = new Date();
@@ -83,6 +90,8 @@ const App: React.FC = () => {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [specials, setSpecials] = useState<{ id: number; title: string; color?: string }[]>([]);
+  const [initialSpecialIds, setInitialSpecialIds] = useState<number[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,6 +138,7 @@ const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', initialTheme);
     loadTasks();
     loadTags();
+    loadSpecials();
     window.electronAPI.onTasksUpdated(() => {
       loadTasks();
       loadTags();
@@ -155,9 +165,21 @@ const App: React.FC = () => {
       setIsModalOpen(true);
     });
 
+    // task-only 模式：自动打开任务弹窗，数据加载完成后
+    if (isTaskOnlyMode) {
+      document.body.setAttribute('data-mode', 'task-only');
+      // 等到 loadTags/loadTasks 完成后弹窗（用微任务延后即可）
+      Promise.resolve().then(() => {
+        setEditingTask(null);
+        setIsModalOpen(true);
+      });
+    } else {
+      document.body.setAttribute('data-mode', 'normal');
+    }
+
     // 加载自动归档时间设置
     window.electronAPI.getArchiveTime().then(setArchiveTime).catch(console.error);
-  }, []);
+  }, [isTaskOnlyMode]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -172,6 +194,34 @@ const App: React.FC = () => {
   const loadTasks = async () => {
     try {
       const loadedTasks = await window.electronAPI.getTasks();
+      // 为每个任务加载「万里长征」关联，以伪 Tag 形式挂到 task.tags
+      // 这样 TaskCard 会自动把「【万里长征: xxx】」渲染成 chip
+      const specialsRaw = await window.electronAPI.getSpecials().catch(() => []);
+      const specialsById = new Map<number, { title: string; color?: string }>();
+      for (const s of specialsRaw) specialsById.set(s.id, { title: s.title, color: s.color });
+
+      for (const t of loadedTasks) {
+        try {
+          const specialIds = await window.electronAPI.getTaskSpecials(t.id);
+          const specTags = (specialIds || [])
+            .map((sid: number) => {
+              const s = specialsById.get(sid);
+              if (!s) return null;
+              return {
+                id: -(1000000 + sid), // 虚拟 id（负数不与真实 tag id 冲突）
+                name: `万里长征: ${s.title}`,
+                color: s.color || '#4a4339',
+                is_preset: 1,
+                sort_order: 0,
+                created_at: '',
+              } as Tag;
+            })
+            .filter(Boolean) as Tag[];
+          t.tags = [...(t.tags || []), ...specTags];
+        } catch (_) {
+          // ignore individual task special load error
+        }
+      }
       setTasks(loadedTasks);
     } catch (error) {
       console.error('Failed to load tasks:', error);
@@ -184,6 +234,15 @@ const App: React.FC = () => {
       setTags(loaded);
     } catch (error) {
       console.error('Failed to load tags:', error);
+    }
+  };
+
+  const loadSpecials = async () => {
+    try {
+      const loaded = await window.electronAPI.getSpecials();
+      setSpecials(loaded.map((s: any) => ({ id: s.id, title: s.title, color: s.color })));
+    } catch (error) {
+      console.error('Failed to load specials:', error);
     }
   };
 
@@ -273,6 +332,21 @@ const App: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  /** 编辑任务时加载万里长征关联 */
+  const handleEditWithAssociations = async (task: Task) => {
+    try {
+      const specialIds = await window.electronAPI.getTaskSpecials(task.id).catch(() => []);
+      setInitialSpecialIds(specialIds || []);
+      setEditingTask(task);
+      setIsModalOpen(true);
+    } catch (err) {
+      console.error('Failed to load task special:', err);
+      setInitialSpecialIds([]);
+      setEditingTask(task);
+      setIsModalOpen(true);
+    }
+  };
+
   /** 「扩展任务」：从详情弹窗触发，关闭详情后打开 TaskModal 扩展模式 */
   const handleExtend = (task: Task) => {
     setViewingTask(null);
@@ -298,20 +372,46 @@ const App: React.FC = () => {
     setConfirmDelete({ open: false, taskId: null });
   };
 
-  const handleSave = async (taskData: Partial<Task>, tagIds?: number[]) => {
+  const handleSave = async (taskData: Partial<Task>, selectedIds: number[]) => {
+    // 把 selectedIds 拆分为：真实 tag id 和 万里长征 id
+    // 负数（绝对值 >= 1000000）且不在数据库 specials 中 → 视为万里长征
+    const specialIdsFromSelected: number[] = [];
+    const tagIdsFromSelected: number[] = [];
+    for (const id of selectedIds) {
+      if (id < 0 && -id > 1000000) {
+        // 虚拟万里长征 id → 转 real special id
+        const realSId = -id - 1000000;
+        // 验证此 realSId 确实是万里长征
+        if (specials.some((s) => s.id === realSId)) {
+          specialIdsFromSelected.push(realSId);
+        } else {
+          // 万里长征已删除 → 忽略
+        }
+      } else {
+        tagIdsFromSelected.push(id);
+      }
+    }
+
     if ('id' in taskData && taskData.id) {
       const updated = await window.electronAPI.updateTask(taskData as Partial<Task> & { id: number });
       // 同步标签
-      if (tagIds !== undefined) {
-        await window.electronAPI.setTaskTags(updated.id, tagIds);
-      }
+      await window.electronAPI.setTaskTags(updated.id, tagIdsFromSelected);
+      // 同步万里长征关联
+      await window.electronAPI.setTaskSpecials(updated.id, specialIdsFromSelected);
     } else {
       const created = await window.electronAPI.createTask(taskData as Omit<Task, 'id' | 'created_at' | 'completed_at'>);
-      if (tagIds && tagIds.length > 0) {
-        await window.electronAPI.setTaskTags(created.id, tagIds);
+      if (tagIdsFromSelected.length > 0) {
+        await window.electronAPI.setTaskTags(created.id, tagIdsFromSelected);
+      }
+      if (specialIdsFromSelected.length > 0) {
+        await window.electronAPI.setTaskSpecials(created.id, specialIdsFromSelected);
       }
     }
     loadTasks();
+    // task-only 模式下保存后关闭窗口
+    if (isTaskOnlyMode) {
+      (window as any).electronAPI.closeTaskOnlyWindow?.();
+    }
     loadTags();
   };
 
@@ -326,6 +426,12 @@ const App: React.FC = () => {
     return t;
   };
 
+  const handleUpdateTag = async (id: number, name: string, color: string) => {
+    await window.electronAPI.updateTag(id, name, color);
+    await loadTags();
+    await loadTasks(); // 任务上的标签名/色也会变
+  };
+
   const handleDeleteTag = async (id: number) => {
     await window.electronAPI.deleteTag(id);
     await loadTags();
@@ -335,6 +441,32 @@ const App: React.FC = () => {
   const getTasksByStatus = (status: TaskStatus) => {
     return tasks.filter((t) => t.status === status && t.parent_id === null);
   };
+
+  // task-only 模式：只渲染任务弹窗（跳过整个主 UI）
+  if (isTaskOnlyMode) {
+    return (
+      <>
+        {isModalOpen && (
+          <TaskModal
+            task={editingTask}
+            allTags={tags}
+            allSpecials={specials}
+            initialSpecialIds={initialSpecialIds}
+            extendsFrom={null}
+            onCreateTag={handleCreateTag}
+            onClose={() => {
+              setIsModalOpen(false);
+              setEditingTask(null);
+              setInitialSpecialIds([]);
+              // 通知主进程关闭 taskOnlyWindow
+              (window as any).electronAPI.closeTaskOnlyWindow?.();
+            }}
+            onSave={handleSave}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -441,7 +573,7 @@ const App: React.FC = () => {
                     column={column}
                     tasks={getTasksByStatus(column.id)}
                     onView={handleView}
-                    onEdit={handleEdit}
+                    onEdit={handleEditWithAssociations}
                     onDelete={handleDelete}
                     onAddTask={column.id === 'todo' ? handleAddTask : undefined}
                     onShowGtdFlow={column.id === 'todo' ? handleShowGtdFlow : undefined}
@@ -491,6 +623,7 @@ const App: React.FC = () => {
             <TagsPage
               tags={tags}
               onCreate={handleCreateTag}
+              onUpdate={handleUpdateTag}
               onDelete={handleDeleteTag}
             />
           )}
@@ -513,12 +646,15 @@ const App: React.FC = () => {
         <TaskModal
           task={editingTask}
           allTags={tags}
+          allSpecials={specials}
+          initialSpecialIds={initialSpecialIds}
           extendsFrom={extendingFromTask}
           onCreateTag={handleCreateTag}
           onClose={() => {
             setIsModalOpen(false);
             setEditingTask(null);
             setExtendingFromTask(null);
+            setInitialSpecialIds([]);
           }}
           onSave={handleSave}
         />
@@ -535,7 +671,7 @@ const App: React.FC = () => {
           onClose={() => setViewingTask(null)}
           onEdit={(t) => {
             setViewingTask(null);
-            handleEdit(t);
+            handleEditWithAssociations(t);
           }}
           onDelete={(id) => {
             setViewingTask(null);

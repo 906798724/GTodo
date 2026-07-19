@@ -1,9 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Tag } from '../types';
 
-interface TagMultiSelectProps {
+/** 选中的虚拟万里长征项 id 计算公式 */
+const SPECIAL_VIRTUAL_BASE = 1000000;
+
+/** 把 special_id 转换为虚拟 id（负数，绝对值 > SPECIAL_VIRTUAL_BASE） */
+export const virtualSpecialId = (specialId: number) => -(SPECIAL_VIRTUAL_BASE + specialId);
+
+/** 把虚拟 id 解析回 special_id（如果不是特殊虚拟 id 则返回 null） */
+export const realSpecialIdFromVirtual = (virtualId: number): number | null => {
+  if (virtualId < 0 && -virtualId > SPECIAL_VIRTUAL_BASE) {
+    return -virtualId - SPECIAL_VIRTUAL_BASE;
+  }
+  return null;
+};
+
+interface TaskTagMultiSelectProps {
   allTags: Tag[];
-  selectedTagIds: number[];
+  specials: { id: number; title: string; color?: string }[];
+  selectedIds: number[]; // 同时包含真实 tag id（正数）和虚拟 special id（负数）
   onChange: (ids: number[]) => void;
   onCreateTag?: (name: string, color: string) => Promise<Tag | void>;
   placeholder?: string;
@@ -16,17 +31,18 @@ const DEFAULT_TAG_COLORS = [
 ];
 
 /**
- * 标签多选下拉
- * - 点击触发器打开下拉面板
- * - 面板内：搜索 + 复选列表 + 底部「+ 新建标签」入口
- * - 选中后立即回调
+ * 任务标签 + 万里长征 混合下拉
+ * - 选中项既可能是真实 tag（正 id），也可能是万里长征（负 id，加偏移量）
+ * - 选中万里长征时显示「【万里长征: 名称】」
+ * - 选中真实 tag 时显示「名称」
  */
-export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
+export const TaskTagMultiSelect: React.FC<TaskTagMultiSelectProps> = ({
   allTags,
-  selectedTagIds,
+  specials,
+  selectedIds,
   onChange,
   onCreateTag,
-  placeholder = '选择标签',
+  placeholder = '选择标签 / 万里长征',
 }) => {
   const [open, setOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -39,7 +55,6 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 点击外部关闭
   useEffect(() => {
     if (!open) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -52,7 +67,6 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  // 打开后自动聚焦搜索
   useEffect(() => {
     if (open) {
       requestAnimationFrame(() => inputRef.current?.focus());
@@ -63,23 +77,31 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
     }
   }, [open]);
 
-  const selectedTags = allTags.filter((t) => selectedTagIds.includes(t.id));
-  const filteredTags = allTags.filter((t) =>
-    t.name.toLowerCase().includes(keyword.trim().toLowerCase())
-  );
+  // 已选中的标签
+  const selectedTags = allTags.filter((t) => selectedIds.includes(t.id));
+  // 已选中的万里长征（虚拟 id → 真实 special id）
+  const selectedSpecials = specials.filter((s) => selectedIds.includes(virtualSpecialId(s.id)));
 
   const toggle = (id: number) => {
     onChange(
-      selectedTagIds.includes(id)
-        ? selectedTagIds.filter((x) => x !== id)
-        : [...selectedTagIds, id]
+      selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]
     );
   };
 
   const removeChip = (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
-    onChange(selectedTagIds.filter((x) => x !== id));
+    onChange(selectedIds.filter((x) => x !== id));
   };
+
+  const filteredTags = allTags.filter((t) =>
+    keyword.trim() === '' ? true : t.name.toLowerCase().includes(keyword.trim().toLowerCase())
+  );
+  const filteredSpecials = specials.filter((s) =>
+    keyword.trim() === ''
+      ? true
+      : s.title.toLowerCase().includes(keyword.trim().toLowerCase()) ||
+        `万里长征: ${s.title}`.toLowerCase().includes(keyword.trim().toLowerCase())
+  );
 
   const handleCreate = async () => {
     if (!onCreateTag) return;
@@ -94,8 +116,8 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
       const created = await onCreateTag(name, newColor);
       if (created && (created as Tag).id) {
         const newId = (created as Tag).id;
-        if (!selectedTagIds.includes(newId)) {
-          onChange([...selectedTagIds, newId]);
+        if (!selectedIds.includes(newId)) {
+          onChange([...selectedIds, newId]);
         }
       }
       setNewName('');
@@ -115,10 +137,30 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
         className={`tag-multiselect-trigger ${open ? 'open' : ''}`}
         onClick={() => setOpen((v) => !v)}
       >
-        {selectedTags.length === 0 ? (
+        {selectedTags.length === 0 && selectedSpecials.length === 0 ? (
           <span className="tag-multiselect-placeholder">{placeholder}</span>
         ) : (
           <div className="tag-multiselect-chips">
+            {selectedSpecials.map((s) => (
+              <span
+                key={`sp-${s.id}`}
+                className="task-tag-chip tag-multiselect-chip"
+                style={{
+                  background: `${s.color || '#4a4339'}22`,
+                  color: s.color || '#4a4339',
+                  borderColor: `${s.color || '#4a4339'}55`,
+                }}
+              >
+                万里长征: {s.title}
+                <span
+                  className="tag-multiselect-chip-remove"
+                  onClick={(e) => removeChip(e, virtualSpecialId(s.id))}
+                  title="移除"
+                >
+                  ×
+                </span>
+              </span>
+            ))}
             {selectedTags.map((t) => (
               <span
                 key={t.id}
@@ -162,18 +204,37 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
               type="text"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索标签..."
+              placeholder="搜索标签或万里长征..."
             />
           </div>
 
           <div className="tag-multiselect-list">
-            {filteredTags.length === 0 && !createOpen && (
-              <div className="tag-multiselect-empty">
-                {keyword ? '没有匹配的标签' : '暂无标签'}
-              </div>
-            )}
+            {/* 万里长征和标签混合在同一列表中，不再分组 */}
+            {filteredSpecials.map((s) => {
+              const vid = virtualSpecialId(s.id);
+              const checked = selectedIds.includes(vid);
+              return (
+                <label
+                  key={`sp-${s.id}`}
+                  className={`tag-multiselect-item ${checked ? 'checked' : ''}`}
+                  style={checked ? { background: `${s.color || '#4a4339'}14` } : {}}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(vid)}
+                  />
+                  <span
+                    className="tag-multiselect-dot"
+                    style={{ background: s.color || '#4a4339' }}
+                  />
+                  <span className="tag-multiselect-name">万里长征: {s.title}</span>
+                </label>
+              );
+            })}
+
             {filteredTags.map((t) => {
-              const checked = selectedTagIds.includes(t.id);
+              const checked = selectedIds.includes(t.id);
               return (
                 <label
                   key={t.id}
@@ -190,6 +251,12 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
                 </label>
               );
             })}
+
+            {filteredTags.length === 0 && filteredSpecials.length === 0 && !createOpen && (
+              <div className="tag-multiselect-empty">
+                {keyword ? '没有匹配的标签或万里长征' : '暂无标签或万里长征'}
+              </div>
+            )}
           </div>
 
           {onCreateTag && (
@@ -271,3 +338,24 @@ export const TagMultiSelect: React.FC<TagMultiSelectProps> = ({
     </div>
   );
 };
+
+/**
+ * 把 selectedIds 拆分为：真实 tag id 列表 和 万里长征 id 列表
+ */
+export function splitSelectedIds(
+  selectedIds: number[],
+  realSpecialIds: number[]
+): { tagIds: number[]; specialIds: number[] } {
+  const realSpecialIdSet = new Set(realSpecialIds);
+  const tagIds: number[] = [];
+  const specialIds: number[] = [];
+  for (const id of selectedIds) {
+    const realSId = realSpecialIdFromVirtual(id);
+    if (realSId !== null && realSpecialIdSet.has(realSId)) {
+      specialIds.push(realSId);
+    } else {
+      tagIds.push(id);
+    }
+  }
+  return { tagIds, specialIds };
+}

@@ -1,12 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Tag } from '../types';
-import { TagMultiSelect } from './TagMultiSelect';
+import {
+  TaskTagMultiSelect,
+  virtualSpecialId,
+  splitSelectedIds,
+} from './TaskTagMultiSelect';
+
+interface SpecialLite {
+  id: number;
+  title: string;
+  color?: string;
+}
 
 interface TaskModalProps {
   task: Task | null;
   allTags?: Tag[];
+  /** 万里长征列表 */
+  allSpecials?: SpecialLite[];
+  /** 编辑任务时携带的现有万里长征关联（万里长征 ID 列表） */
+  initialSpecialIds?: number[];
   onClose: () => void;
-  onSave: (task: Partial<Task>, tagIds?: number[]) => void;
+  /** 注意：selectedIds 既包含真实 tag id（正数），也包含虚拟万里长征 id（负数） */
+  onSave: (task: Partial<Task>, selectedIds: number[]) => void;
   /** 在弹窗内快速创建新标签（可选） */
   onCreateTag?: (name: string, color: string) => Promise<Tag | void>;
   /** 「扩展任务」模式：新建的任务会关联到这个原任务上 */
@@ -16,6 +31,8 @@ interface TaskModalProps {
 export const TaskModal: React.FC<TaskModalProps> = ({
   task,
   allTags = [],
+  allSpecials = [],
+  initialSpecialIds = [],
   onClose,
   onSave,
   onCreateTag,
@@ -25,22 +42,31 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [description, setDescription] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [subtasks, setSubtasks] = useState<{ id: number; title: string; completed: boolean }[]>([]);
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  /** 选中的 id 数组：正数 = 真实 tag id，负数（绝对值>=1000000） = 虚拟万里长征 id */
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   useEffect(() => {
     if (task) {
       setTitle(task.title);
       setDescription(task.description);
       setExpectedDate(task.expected_date || '');
-      setSelectedTagIds((task.tags || []).map((t) => t.id));
+
+      // 编辑时回显：把 tags 真实 id 提取 + 把万里长征虚拟 id 加入
+      const realTagIds = (task.tags || [])
+        .filter((t) => t.id > 0)
+        .map((t) => t.id);
+      // 初始化时由 App.tsx 提供 initialSpecialIds（万里长征 ID 列表），这里转虚拟 id
+      const virtualSpecIds = (initialSpecialIds || [])
+        .map((sid) => virtualSpecialId(sid));
+      setSelectedIds([...realTagIds, ...virtualSpecIds]);
     } else {
       setTitle('');
       setDescription('');
       setExpectedDate('');
       setSubtasks([]);
-      setSelectedTagIds([]);
+      setSelectedIds([]);
     }
-  }, [task]);
+  }, [task, initialSpecialIds]);
 
   const handleAddSubtask = () => {
     setSubtasks([...subtasks, { id: Date.now(), title: '', completed: false }]);
@@ -74,7 +100,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       updatedTask.extends_task_id = extendsFrom.id;
     }
 
-    onSave(updatedTask, selectedTagIds);
+    onSave(updatedTask, selectedIds);
 
     subtasks.forEach((subtask) => {
       if (subtask.title.trim()) {
@@ -150,12 +176,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
             <div className="form-group">
               <label>标签</label>
-              <TagMultiSelect
+              <TaskTagMultiSelect
                 allTags={allTags}
-                selectedTagIds={selectedTagIds}
-                onChange={setSelectedTagIds}
+                specials={allSpecials}
+                selectedIds={selectedIds}
+                onChange={setSelectedIds}
                 onCreateTag={onCreateTag}
-                placeholder="点击选择标签（可多选）"
+                placeholder="点击选择标签或万里长征（可多选）"
               />
             </div>
 

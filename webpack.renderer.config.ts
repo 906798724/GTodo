@@ -19,10 +19,6 @@ const config: Configuration = {
           to: path.resolve(__dirname, 'dist', 'renderer', 'index.html'),
         },
         {
-          from: path.resolve(__dirname, 'src', 'renderer', 'quick-input.html'),
-          to: path.resolve(__dirname, 'dist', 'renderer', 'quick-input.html'),
-        },
-        {
           from: path.resolve(__dirname, 'src', 'renderer', 'tray-icon.png'),
           to: path.resolve(__dirname, 'dist', 'renderer', 'tray-icon.png'),
         },

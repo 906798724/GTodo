@@ -1,10 +1,9 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, getObjective, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, getMilestone, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds, getTaskObjectiveIds, getTaskKeyResultIds, setTaskObjectives, setTaskKeyResults } from './database';
+import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds } from './database';
 
 let mainWindow: BrowserWindow | null = null;
-let quickInputWindow: BrowserWindow | null = null;
 let taskOnlyWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
@@ -139,8 +138,6 @@ function createMainWindow() {
   mainWindow.on('close', (event) => {
     event.preventDefault();
     mainWindow?.hide();
-    quickInputWindow?.close();
-    quickInputWindow = null;
   });
 
   // 不拦截 minimize：让窗口正常最小化到 Windows 任务栏（fix：之前误调 hide() 缩到系统角标）
@@ -161,50 +158,9 @@ function createMainWindow() {
   });
 }
 
-function createQuickInputWindow() {
-  if (quickInputWindow && !quickInputWindow.isDestroyed()) {
-    if (!quickInputWindow.isVisible()) quickInputWindow.show();
-    quickInputWindow.focus();
-    return;
-  }
-  quickInputWindow = null;
-
-  quickInputWindow = new BrowserWindow({
-    width: 520,
-    height: 280,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
-  });
-
-  const screen = require('electron').screen;
-  const display = screen.getPrimaryDisplay();
-  const { width, height } = display.workAreaSize;
-  quickInputWindow.setPosition(Math.floor((width - 520) / 2), Math.floor((height - 280) / 2));
-
-  if (process.env.NODE_ENV === 'development') {
-    quickInputWindow.loadURL('http://localhost:3000/quick-input.html');
-  } else {
-    quickInputWindow.loadFile(path.join(__dirname, '../renderer/quick-input.html'));
-  }
-
-  quickInputWindow.on('closed', () => {
-    quickInputWindow = null;
-  });
-}
-
 /**
  * 「仅任务弹窗」窗口（Ctrl+Alt+Q 触发）：
  * - 不显示主窗口
- * - 独立小窗口，加载主页 URL（带 ?mode=task-only），主页会隐藏 chrome 只显示 TaskModal
- * - 无边框、透明背景、置顶
  */
 function createTaskOnlyWindow() {
   if (taskOnlyWindow && !taskOnlyWindow.isDestroyed()) {
@@ -362,8 +318,6 @@ function setupTray() {
     {
       label: '退出',
       click: () => {
-        quickInputWindow?.close();
-        quickInputWindow = null;
         mainWindow?.destroy();
         mainWindow = null;
         tray?.destroy();
@@ -465,7 +419,6 @@ ipcMain.handle('set-archive-time', (_event, time: string) => {
 
 // OKR IPC
 ipcMain.handle('get-objectives', async () => await getObjectives());
-ipcMain.handle('get-objective', async (_event, id: number) => await getObjective(id));
 ipcMain.handle('create-objective', async (_event, data: any) => await createObjective(data));
 ipcMain.handle('update-objective', async (_event, data: any) => await updateObjective(data));
 ipcMain.handle('delete-objective', async (_event, id: number) => await deleteObjective(id));
@@ -490,11 +443,6 @@ ipcMain.handle('archive-done-tasks', async (_event, date: string) => {
   return await archiveDoneTasksForDate(date);
 });
 
-// 手动触发归档（使用今天日期）——用于调试
-ipcMain.handle('trigger-archive-now', async () => {
-  return await autoArchiveDoneTasks();
-});
-
 // 查询指定日期归档的任务（雁过留痕点击日期时使用）
 ipcMain.handle('get-tasks-by-archive-date', async (_event, date: string) => {
   return await getTasksByArchiveDate(date);
@@ -516,35 +464,17 @@ ipcMain.handle('set-task-specials', async (_event, taskId: number, specialIds: n
 
 // 里程碑 IPC
 ipcMain.handle('get-milestones', async (_event, specialId: number) => await getMilestones(specialId));
-ipcMain.handle('get-milestone', async (_event, id: number) => await getMilestone(id));
 ipcMain.handle('create-milestone', async (_event, data: any) => await createMilestone(data));
 ipcMain.handle('update-milestone', async (_event, id: number, data: any) => await updateMilestone(id, data));
 ipcMain.handle('delete-milestone', async (_event, id: number) => await deleteMilestone(id));
 
-// 任务关联有的放矢（OKR）IPC
+// 任务关联有的放矢（万里长征）IPC
 ipcMain.handle('get-task-specials', async (_event, taskId: number) => await getTaskSpecialIds(taskId));
-ipcMain.handle('get-task-objective-ids', async (_event, taskId: number) => await getTaskObjectiveIds(taskId));
-ipcMain.handle('get-task-key-result-ids', async (_event, taskId: number) => await getTaskKeyResultIds(taskId));
-ipcMain.handle('set-task-objectives', async (_event, taskId: number, ids: number[]) => await setTaskObjectives(taskId, ids));
-ipcMain.handle('set-task-key-results', async (_event, taskId: number, ids: number[]) => await setTaskKeyResults(taskId, ids));
-
-ipcMain.on('close-quick-input', () => {
-  if (quickInputWindow) {
-    quickInputWindow.close();
-    quickInputWindow = null;
-  }
-});
 
 ipcMain.on('close-task-only-window', () => {
   if (taskOnlyWindow && !taskOnlyWindow.isDestroyed()) {
     taskOnlyWindow.close();
     taskOnlyWindow = null;
-  }
-});
-
-ipcMain.on('open-quick-input', () => {
-  if (mainWindow) {
-    mainWindow.webContents.send('open-task-modal');
   }
 });
 

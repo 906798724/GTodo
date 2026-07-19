@@ -11,7 +11,6 @@ import { SpecialPage } from './components/SpecialPage';
 import { ArchiveCalendar } from './components/ArchiveCalendar';
 import { OkrPage } from './components/OkrPage';
 import { TaskDetailModal } from './components/TaskDetailModal';
-import { TagManagerModal } from './components/TagManagerModal';
 import { TagsPage } from './components/TagsPage';
 import { SettingsPage } from './components/SettingsPage';
 import { Task, Tag, TaskStatus, MAIN_COLUMNS } from './types';
@@ -29,7 +28,6 @@ declare global {
       upsertSummary: (date: string, content: string) => Promise<{ date: string; content: string; updated_at: string }>;
       deleteSummary: (date: string) => Promise<void>;
       getObjectives: () => Promise<any[]>;
-      getObjective: (id: number) => Promise<any>;
       createObjective: (data: any) => Promise<any>;
       updateObjective: (data: any) => Promise<any>;
       deleteObjective: (id: number) => Promise<void>;
@@ -44,7 +42,6 @@ declare global {
       deleteTag: (id: number) => Promise<void>;
       setTaskTags: (taskId: number, tagIds: number[]) => Promise<void>;
       archiveDoneTasks: (date: string) => Promise<number>;
-      triggerArchiveNow: () => Promise<number>;
       getTasksByArchiveDate: (date: string) => Promise<Task[]>;
       getMonthArchivedTaskCount: (year: number, month: number) => Promise<Record<string, number>>;
       getSpecials: () => Promise<any[]>;
@@ -57,7 +54,6 @@ declare global {
       // 任务关联万里长征
       getTaskSpecials: (taskId: number) => Promise<number[]>;
       getMilestones: (specialId: number) => Promise<any[]>;
-      getMilestone: (id: number) => Promise<any | null>;
       createMilestone: (data: any) => Promise<any>;
       updateMilestone: (id: number, data: any) => Promise<void>;
       deleteMilestone: (id: number) => Promise<void>;
@@ -65,7 +61,6 @@ declare global {
       setArchiveTime: (time: string) => Promise<void>;
       onTasksUpdated: (callback: () => void) => void;
       onSetTheme: (callback: (theme: string) => void) => void;
-      onMenuAction: (callback: (action: string) => void) => void;
       onOpenTaskModal: (callback: () => void) => void;
     };
   }
@@ -106,14 +101,12 @@ const App: React.FC = () => {
   });
   const [currentPage, setCurrentPage] = useState<'home' | 'okr' | 'special' | 'archived' | 'tags' | 'settings'>('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [gtdFlowOpen, setGtdFlowOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [todaySummary, setTodaySummary] = useState('');
   const [initialSummaryDate, setInitialSummaryDate] = useState<string | undefined>(undefined);
   const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
   const [dayArchivedTasks, setDayArchivedTasks] = useState<Task[]>([]);
-  const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [archiveTime, setArchiveTime] = useState('09:00');
 
   // 当前日期（YYYY-MM-DD，本地时间）
@@ -211,7 +204,6 @@ const App: React.FC = () => {
                 id: -(1000000 + sid), // 虚拟 id（负数不与真实 tag id 冲突）
                 name: `万里长征: ${s.title}`,
                 color: s.color || '#4a4339',
-                is_preset: 1,
                 sort_order: 0,
                 created_at: '',
               } as Tag;
@@ -761,17 +753,6 @@ const App: React.FC = () => {
           }}
         />
       )}
-
-      {tagManagerOpen && (
-        <TagManagerModal
-          tags={tags}
-          onClose={() => setTagManagerOpen(false)}
-          onCreate={handleCreateTag}
-          onDelete={handleDeleteTag}
-        />
-      )}
-
-      {settingsOpen && null /* 旧的设置弹窗已移除：现在使用独立的设置页面 */}
     </div>
   );
 };

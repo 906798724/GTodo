@@ -26,7 +26,6 @@ export interface Tag {
   id: number;
   name: string;
   color: string;
-  is_preset: number; // 1=预置，0=用户自定义
   sort_order: number;
   created_at: string;
 }
@@ -93,7 +92,7 @@ function getDbPath(): string {
 //   1. 增加 SCHEMA_VERSION
 //   2. 在 MIGRATIONS 数组中添加对应的迁移函数
 // 旧的数据库会在启动时自动应用所有未执行的迁移
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 interface Migration {
   fromVersion: number;
@@ -158,7 +157,6 @@ const MIGRATIONS: Migration[] = [
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL UNIQUE,
           color TEXT DEFAULT '#4a4339',
-          is_preset INTEGER NOT NULL DEFAULT 0,
           sort_order INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -182,7 +180,7 @@ const MIGRATIONS: Migration[] = [
       ];
       const now = getLocalTimestamp();
       const stmt = db.prepare(
-        'INSERT OR IGNORE INTO tags (name, color, is_preset, sort_order, created_at) VALUES (?, ?, 1, ?, ?)'
+        'INSERT OR IGNORE INTO tags (name, color, sort_order, created_at) VALUES (?, ?, ?, ?)'
       );
       for (const t of presets) {
         stmt.run([t.name, t.color, t.sort, now]);
@@ -372,6 +370,24 @@ const MIGRATIONS: Migration[] = [
       db.run(`UPDATE tags SET is_preset = 0 WHERE is_preset = 1`);
     },
   },
+  {
+    fromVersion: 13,
+    toVersion: 14,
+    description: '清理废弃的 OKR 任务关联表（task_objectives / task_key_results）以及 is_preset 字段',
+    up: (db: any) => {
+      // 1) 删除两张无任何消费者的 OKR 关联表
+      db.run(`DROP TABLE IF EXISTS task_objectives`);
+      db.run(`DROP TABLE IF EXISTS task_key_results`);
+
+      // 2) 移除 tags.is_preset 字段（v13 后所有标签已统一，不再区分预置/自定义）
+      // SQLite ≥ 3.35.0 支持 DROP COLUMN；sql.js 携带的 SQLite 版本满足要求
+      const info = db.exec(`PRAGMA table_info(tags)`);
+      const columns = info.length > 0 ? info[0].values.map((row: any[]) => row[1]) : [];
+      if (columns.includes('is_preset')) {
+        db.run(`ALTER TABLE tags DROP COLUMN is_preset`);
+      }
+    },
+  },
 ];
 
 // 获取当前数据库版本（通过 PRAGMA user_version）
@@ -499,7 +515,6 @@ export async function initDatabase(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       color TEXT DEFAULT '#4a4339',
-      is_preset INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -542,29 +557,6 @@ export async function initDatabase(): Promise<void> {
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_specials_special ON task_specials(special_id)`);
 
-  // OKR 关联表（v12）
-  db.run(`
-    CREATE TABLE IF NOT EXISTS task_objectives (
-      task_id INTEGER NOT NULL,
-      objective_id INTEGER NOT NULL,
-      PRIMARY KEY (task_id, objective_id),
-      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-      FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE
-    )
-  `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_objectives_objective ON task_objectives(objective_id)`);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS task_key_results (
-      task_id INTEGER NOT NULL,
-      key_result_id INTEGER NOT NULL,
-      PRIMARY KEY (task_id, key_result_id),
-      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-      FOREIGN KEY (key_result_id) REFERENCES key_results(id) ON DELETE CASCADE
-    )
-  `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_key_results_kr ON task_key_results(key_result_id)`);
-
   db.run(`
     CREATE TABLE IF NOT EXISTS milestones (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -597,6 +589,38 @@ function saveDatabase(): void {
   }
 }
 
+/**
+ * 把 task_tags + tags 全量查询结果挂到对应 task 上
+ * - 重复逻辑（getTasks / getTasksByArchiveDate / getTasksBySpecial）提取到一处
+ */
+function attachTagsToTasks(tasks: Task[]): void {
+  if (tasks.length === 0) return;
+  const relResult = db.exec(`
+    SELECT tt.task_id, t.id, t.name, t.color, t.sort_order, t.created_at
+    FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
+  `);
+  if (relResult.length === 0) {
+    for (const t of tasks) t.tags = [];
+    return;
+  }
+  const tagsByTask = new Map<number, Tag[]>();
+  for (const row of relResult[0].values) {
+    const taskId = row[0] as number;
+    const tag: Tag = {
+      id: row[1] as number,
+      name: row[2] as string,
+      color: row[3] as string,
+      sort_order: row[4] as number,
+      created_at: row[5] as string,
+    };
+    if (!tagsByTask.has(taskId)) tagsByTask.set(taskId, []);
+    tagsByTask.get(taskId)!.push(tag);
+  }
+  for (const t of tasks) {
+    t.tags = tagsByTask.get(t.id) || [];
+  }
+}
+
 export async function getTasks(): Promise<Task[]> {
   if (!db) {
     throw new Error('Database not initialized');
@@ -609,39 +633,14 @@ export async function getTasks(): Promise<Task[]> {
     return [];
   }
   const columns = result[0].columns;
-  const values = result[0].values;
-  const tasks: Task[] = values.map((row: any[]) => {
+  const tasks: Task[] = result[0].values.map((row: any[]) => {
     const task: Partial<Task> = {};
     columns.forEach((col: string, index: number) => {
       task[col as keyof Task] = row[index] ?? null;
     });
     return task as Task;
   });
-
-  // 一次性查出所有 task_tag 关联，再按 task_id 分组
-  const relResult = db.exec(`
-    SELECT tt.task_id, t.id, t.name, t.color, t.is_preset, t.sort_order, t.created_at
-    FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-  `);
-  const tagsByTask = new Map<number, Tag[]>();
-  if (relResult.length > 0) {
-    for (const row of relResult[0].values) {
-      const taskId = row[0] as number;
-      const tag: Tag = {
-        id: row[1] as number,
-        name: row[2] as string,
-        color: row[3] as string,
-        is_preset: row[4] as number,
-        sort_order: row[5] as number,
-        created_at: row[6] as string,
-      };
-      if (!tagsByTask.has(taskId)) tagsByTask.set(taskId, []);
-      tagsByTask.get(taskId)!.push(tag);
-    }
-  }
-  for (const t of tasks) {
-    t.tags = tagsByTask.get(t.id) || [];
-  }
+  attachTagsToTasks(tasks);
   return tasks;
 }
 
@@ -655,13 +654,6 @@ function getLocalTimestamp(): string {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
-
-// 解析本地时间字符串为 Date 对象
-function parseLocalTimestamp(timestamp: string): Date {
-  // SQLite CURRENT_TIMESTAMP 格式为 'YYYY-MM-DD HH:MM:SS'，当作本地时间解析
-  const normalized = timestamp.includes('T') ? timestamp : timestamp.replace(' ', 'T');
-  return new Date(normalized);
 }
 
 export async function createTask(task: Omit<Task, 'id' | 'created_at' | 'completed_at'>): Promise<Task> {
@@ -843,31 +835,7 @@ export async function getTasksByArchiveDate(date: string): Promise<Task[]> {
     });
     return obj as Task;
   });
-
-  // 关联标签
-  const tagsResult = db.exec(`
-    SELECT tt.task_id, t.id, t.name, t.color, t.is_preset, t.sort_order, t.created_at
-    FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-  `);
-  const tagMap = new Map<number, Tag[]>();
-  if (tagsResult.length > 0) {
-    for (const row of tagsResult[0].values) {
-      const taskId = row[0] as number;
-      const tag: Tag = {
-        id: row[1],
-        name: row[2],
-        color: row[3],
-        is_preset: row[4],
-        sort_order: row[5],
-        created_at: row[6],
-      };
-      if (!tagMap.has(taskId)) tagMap.set(taskId, []);
-      tagMap.get(taskId)!.push(tag);
-    }
-  }
-  tasks.forEach((t) => {
-    t.tags = tagMap.get(t.id) || [];
-  });
+  attachTagsToTasks(tasks);
   return tasks;
 }
 
@@ -1052,31 +1020,7 @@ export async function getTasksBySpecial(specialId: number): Promise<Task[]> {
     });
     return obj as Task;
   });
-
-  const tagMap = new Map<number, Tag[]>();
-  const tagsResult = db.exec(`
-    SELECT tt.task_id, t.id, t.name, t.color, t.is_preset, t.sort_order, t.created_at
-    FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-    WHERE tt.task_id IN (SELECT task_id FROM task_specials WHERE special_id = ?)
-  `, [specialId]);
-  if (tagsResult.length > 0) {
-    for (const row of tagsResult[0].values) {
-      const taskId = row[0] as number;
-      const tag: Tag = {
-        id: row[1],
-        name: row[2],
-        color: row[3],
-        is_preset: row[4],
-        sort_order: row[5],
-        created_at: row[6],
-      };
-      if (!tagMap.has(taskId)) tagMap.set(taskId, []);
-      tagMap.get(taskId)!.push(tag);
-    }
-  }
-  tasks.forEach((t) => {
-    t.tags = tagMap.get(t.id) || [];
-  });
+  attachTagsToTasks(tasks);
   return tasks;
 }
 
@@ -1105,82 +1049,6 @@ export async function getTaskSpecialIds(taskId: number): Promise<number[]> {
   const result = db.exec(`SELECT special_id FROM task_specials WHERE task_id = ?`, [taskId]);
   if (result.length === 0) return [];
   return result[0].values.map((row: any[]) => row[0] as number);
-}
-
-/** 获取任务关联的所有 Objective ID */
-export async function getTaskObjectiveIds(taskId: number): Promise<number[]> {
-  if (!db) throw new Error('Database not initialized');
-  const result = db.exec(`SELECT objective_id FROM task_objectives WHERE task_id = ?`, [taskId]);
-  if (result.length === 0) return [];
-  return result[0].values.map((row: any[]) => row[0] as number);
-}
-
-/** 获取任务关联的所有 Key Result ID */
-export async function getTaskKeyResultIds(taskId: number): Promise<number[]> {
-  if (!db) throw new Error('Database not initialized');
-  const result = db.exec(`SELECT key_result_id FROM task_key_results WHERE task_id = ?`, [taskId]);
-  if (result.length === 0) return [];
-  return result[0].values.map((row: any[]) => row[0] as number);
-}
-
-/** 设置任务关联的 Objective（覆盖式写入），同时返回变化的事务函数 */
-export async function setTaskObjectives(taskId: number, objectiveIds: number[]): Promise<void> {
-  if (!db) throw new Error('Database not initialized');
-  db.run('DELETE FROM task_objectives WHERE task_id = ?', [taskId]);
-  if (objectiveIds.length > 0) {
-    const placeholders = objectiveIds.map(() => '(?, ?)').join(', ');
-    const params: number[] = [];
-    for (const oid of objectiveIds) params.push(taskId, oid);
-    db.run(`INSERT INTO task_objectives (task_id, objective_id) VALUES ${placeholders}`, params);
-  }
-}
-
-/** 设置任务关联的 Key Result（覆盖式写入） */
-export async function setTaskKeyResults(taskId: number, keyResultIds: number[]): Promise<void> {
-  if (!db) throw new Error('Database not initialized');
-  db.run('DELETE FROM task_key_results WHERE task_id = ?', [taskId]);
-  if (keyResultIds.length > 0) {
-    const placeholders = keyResultIds.map(() => '(?, ?)').join(', ');
-    const params: number[] = [];
-    for (const krid of keyResultIds) params.push(taskId, krid);
-    db.run(`INSERT INTO task_key_results (task_id, key_result_id) VALUES ${placeholders}`, params);
-  }
-}
-
-/** 获取某个 Objective 下的所有未归档任务 */
-export async function getTasksByObjective(objectiveId: number): Promise<Task[]> {
-  if (!db) throw new Error('Database not initialized');
-  const result = db.exec(
-    `SELECT t.* FROM tasks t JOIN task_objectives tobj ON t.id = tobj.task_id WHERE tobj.objective_id = ? AND t.archived_at IS NULL ORDER BY t.created_at DESC`,
-    [objectiveId]
-  );
-  if (result.length === 0) return [];
-  const columns = result[0].columns;
-  return result[0].values.map((values: any[]) => {
-    const obj: Partial<Task> = {};
-    columns.forEach((col: string, index: number) => {
-      obj[col as keyof Task] = values[index] ?? null;
-    });
-    return obj as Task;
-  });
-}
-
-/** 获取某个 Key Result 下的所有未归档任务 */
-export async function getTasksByKeyResult(keyResultId: number): Promise<Task[]> {
-  if (!db) throw new Error('Database not initialized');
-  const result = db.exec(
-    `SELECT t.* FROM tasks t JOIN task_key_results tkr ON t.id = tkr.task_id WHERE tkr.key_result_id = ? AND t.archived_at IS NULL ORDER BY t.created_at DESC`,
-    [keyResultId]
-  );
-  if (result.length === 0) return [];
-  const columns = result[0].columns;
-  return result[0].values.map((values: any[]) => {
-    const obj: Partial<Task> = {};
-    columns.forEach((col: string, index: number) => {
-      obj[col as keyof Task] = values[index] ?? null;
-    });
-    return obj as Task;
-  });
 }
 
 // =====================================================
@@ -1525,7 +1393,7 @@ function mapRow<T>(cols: string[], row: any[]): T {
 /** 获取所有标签（按 sort_order 升序） */
 export async function getTags(): Promise<Tag[]> {
   if (!db) throw new Error('Database not initialized');
-  const result = db.exec('SELECT * FROM tags ORDER BY is_preset DESC, sort_order ASC, id ASC');
+  const result = db.exec('SELECT * FROM tags ORDER BY sort_order ASC, id ASC');
   if (result.length === 0) return [];
   const cols = result[0].columns;
   return result[0].values.map((row: any[]) => mapRow<Tag>(cols, row));
@@ -1542,7 +1410,7 @@ export async function createTag(name: string, color: string = '#4a4339'): Promis
   const now = getLocalTimestamp();
   try {
     db.run(
-      'INSERT INTO tags (name, color, is_preset, sort_order, created_at) VALUES (?, ?, 0, ?, ?)',
+      'INSERT INTO tags (name, color, sort_order, created_at) VALUES (?, ?, ?, ?)',
       [trimmed, color, maxSort + 1, now]
     );
   } catch (err: any) {

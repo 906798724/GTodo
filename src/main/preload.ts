@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteSummary: (date: string) => ipcRenderer.invoke('delete-summary', date),
   // OKR
   getObjectives: () => ipcRenderer.invoke('get-objectives'),
-  getObjective: (id: number) => ipcRenderer.invoke('get-objective', id),
   createObjective: (data: any) => ipcRenderer.invoke('create-objective', data),
   updateObjective: (data: any) => ipcRenderer.invoke('update-objective', data),
   deleteObjective: (id: number) => ipcRenderer.invoke('delete-objective', id),
@@ -30,7 +29,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setTaskTags: (taskId: number, tagIds: number[]) => ipcRenderer.invoke('set-task-tags', taskId, tagIds),
   // 归档 Done 列任务（点击「总结」时调用）
   archiveDoneTasks: (date: string) => ipcRenderer.invoke('archive-done-tasks', date),
-  triggerArchiveNow: () => ipcRenderer.invoke('trigger-archive-now'),
   // 查询指定日期归档的任务（雁过留痕点击日期时使用）
   getTasksByArchiveDate: (date: string) => ipcRenderer.invoke('get-tasks-by-archive-date', date),
   // 查询某月每天的归档任务数（用于月历显示）
@@ -45,33 +43,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setTaskSpecials: (taskId: number, specialIds: number[]) => ipcRenderer.invoke('set-task-specials', taskId, specialIds),
   // 里程碑
   getMilestones: (specialId: number) => ipcRenderer.invoke('get-milestones', specialId),
-  getMilestone: (id: number) => ipcRenderer.invoke('get-milestone', id),
   createMilestone: (data: any) => ipcRenderer.invoke('create-milestone', data),
   updateMilestone: (id: number, data: any) => ipcRenderer.invoke('update-milestone', id, data),
   deleteMilestone: (id: number) => ipcRenderer.invoke('delete-milestone', id),
-  // 任务关联有的放矢（OKR）
+  // 任务关联有的放矢（万里长征）
   getTaskSpecials: (taskId: number) => ipcRenderer.invoke('get-task-specials', taskId),
-  getTaskObjectiveIds: (taskId: number) => ipcRenderer.invoke('get-task-objective-ids', taskId),
-  getTaskKeyResultIds: (taskId: number) => ipcRenderer.invoke('get-task-key-result-ids', taskId),
-  setTaskObjectives: (taskId: number, ids: number[]) => ipcRenderer.invoke('set-task-objectives', taskId, ids),
-  setTaskKeyResults: (taskId: number, ids: number[]) => ipcRenderer.invoke('set-task-key-results', taskId, ids),
   // 自动归档时间配置
   getArchiveTime: () => ipcRenderer.invoke('get-archive-time'),
   setArchiveTime: (time: string) => ipcRenderer.invoke('set-archive-time', time),
   onTasksUpdated: (callback: () => void) => {
     ipcRenderer.on('tasks-updated', callback);
   },
-  closeQuickInput: () => ipcRenderer.send('close-quick-input'),
-  openQuickInput: () => ipcRenderer.send('open-quick-input'),
   /** task-only 模式下关闭独立窗口 */
   closeTaskOnlyWindow: () => ipcRenderer.send('close-task-only-window'),
   refreshTasks: () => ipcRenderer.send('refresh-tasks'),
   setNativeTheme: (isDark: boolean) => ipcRenderer.send('set-native-theme', isDark),
   onSetTheme: (callback: (theme: string) => void) => {
     ipcRenderer.on('set-theme', (_event, theme) => callback(theme));
-  },
-  onMenuAction: (callback: (action: string) => void) => {
-    ipcRenderer.on('menu-action', (_event, action) => callback(action));
   },
   onOpenTaskModal: (callback: () => void) => {
     ipcRenderer.on('open-task-modal', callback);

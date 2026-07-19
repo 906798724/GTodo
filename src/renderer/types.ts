@@ -4,7 +4,6 @@ export interface Tag {
   id: number;
   name: string;
   color: string;
-  is_preset: number;
   sort_order: number;
   created_at: string;
 }

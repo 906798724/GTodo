@@ -119,28 +119,7 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
             </div>
           )}
 
-          {doneTasks.length > 0 && (
-            <div className="summary-archived-panel">
-              <div className="summary-archived-title">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-                Done 列已完成任务（{doneTasks.length}）
-              </div>
-              <ul className="summary-archived-list">
-                {doneTasks.map((t) => (
-                  <li
-                    key={t.id}
-                    className="summary-archived-item"
-                    onClick={() => onViewTask && onViewTask(t)}
-                    title="点击查看任务详情"
-                  >
-                    {t.title}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          
 
           <div className="form-group">
             <label>总结内容</label>

@@ -6,6 +6,7 @@ import { TaskCard } from './components/TaskCard';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { SummaryModal } from './components/SummaryModal';
+import { Toast } from './components/Toast';
 import { GtdFlowModal } from './components/GtdFlowModal';
 import { SpecialPage } from './components/SpecialPage';
 import { ArchiveCalendar } from './components/ArchiveCalendar';
@@ -13,6 +14,7 @@ import { OkrPage } from './components/OkrPage';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { TagsPage } from './components/TagsPage';
 import { SettingsPage } from './components/SettingsPage';
+import { CompletedPage } from './components/CompletedPage';
 import { Task, Tag, TaskStatus, MAIN_COLUMNS } from './types';
 import './styles/main.css';
 
@@ -20,6 +22,7 @@ declare global {
   interface Window {
     electronAPI: {
       getTasks: () => Promise<Task[]>;
+      getAllCompletedTasks: () => Promise<Task[]>;
       createTask: (task: Omit<Task, 'id' | 'created_at' | 'completed_at'>) => Promise<Task>;
       updateTask: (task: Partial<Task> & { id: number }) => Promise<Task>;
       deleteTask: (id: number) => Promise<void>;
@@ -47,7 +50,7 @@ declare global {
       getSpecials: () => Promise<any[]>;
       getSpecial: (id: number) => Promise<any | null>;
       createSpecial: (data: { title: string; description?: string; color?: string; due_date?: string | null }) => Promise<any>;
-      updateSpecial: (id: number, data: { title?: string; description?: string; color?: string; due_date?: string | null }) => Promise<void>;
+      updateSpecial: (id: number, data: { title?: string; description?: string; color?: string; due_date?: string | null; sort_order?: number }) => Promise<void>;
       deleteSpecial: (id: number) => Promise<void>;
       getTasksBySpecial: (specialId: number) => Promise<Task[]>;
       setTaskSpecials: (taskId: number, specialIds: number[]) => Promise<void>;
@@ -84,6 +87,7 @@ const App: React.FC = () => {
   };
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [specials, setSpecials] = useState<{ id: number; title: string; color?: string }[]>([]);
   const [initialSpecialIds, setInitialSpecialIds] = useState<number[]>([]);
@@ -95,11 +99,16 @@ const App: React.FC = () => {
   /** 「扩展任务」模式：基于此任务创建新任务 */
   const [extendingFromTask, setExtendingFromTask] = useState<Task | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [toast, setToast] = useState<{ open: boolean; message: string; type: 'success' | 'info' | 'error' }>({
+    open: false,
+    message: '',
+    type: 'success',
+  });
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; taskId: number | null }>({
     open: false,
     taskId: null,
   });
-  const [currentPage, setCurrentPage] = useState<'home' | 'okr' | 'special' | 'archived' | 'tags' | 'settings'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'completed' | 'okr' | 'special' | 'archived' | 'tags' | 'settings'>('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gtdFlowOpen, setGtdFlowOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -130,10 +139,13 @@ const App: React.FC = () => {
     setTheme(initialTheme);
     document.documentElement.setAttribute('data-theme', initialTheme);
     loadTasks();
+    loadCompletedTasks();
     loadTags();
     loadSpecials();
     window.electronAPI.onTasksUpdated(() => {
+      console.log('[App] tasks-updated received, refreshing tasks');
       loadTasks();
+      loadCompletedTasks();
       loadTags();
     });
 
@@ -196,13 +208,17 @@ const App: React.FC = () => {
       for (const t of loadedTasks) {
         try {
           const specialIds = await window.electronAPI.getTaskSpecials(t.id);
+          const existingTagNames = new Set((t.tags || []).map((tag) => tag.name));
           const specTags = (specialIds || [])
             .map((sid: number) => {
               const s = specialsById.get(sid);
               if (!s) return null;
+              const tagName = `万里长征: ${s.title}`;
+              // 如果已存在同名的真实标签，跳过虚拟标签（避免重复）
+              if (existingTagNames.has(tagName)) return null;
               return {
                 id: -(1000000 + sid), // 虚拟 id（负数不与真实 tag id 冲突）
-                name: `万里长征: ${s.title}`,
+                name: tagName,
                 color: s.color || '#4a4339',
                 sort_order: 0,
                 created_at: '',
@@ -217,6 +233,43 @@ const App: React.FC = () => {
       setTasks(loadedTasks);
     } catch (error) {
       console.error('Failed to load tasks:', error);
+    }
+  };
+
+  const loadCompletedTasks = async () => {
+    try {
+      const loaded = await window.electronAPI.getAllCompletedTasks();
+      const specialsRaw = await window.electronAPI.getSpecials().catch(() => []);
+      const specialsById = new Map<number, { title: string; color?: string }>();
+      for (const s of specialsRaw) specialsById.set(s.id, { title: s.title, color: s.color });
+
+      for (const t of loaded) {
+        try {
+          const specialIds = await window.electronAPI.getTaskSpecials(t.id);
+          const existingTagNames = new Set((t.tags || []).map((tag) => tag.name));
+          const specTags = (specialIds || [])
+            .map((sid: number) => {
+              const s = specialsById.get(sid);
+              if (!s) return null;
+              const tagName = `万里长征: ${s.title}`;
+              if (existingTagNames.has(tagName)) return null;
+              return {
+                id: -(1000000 + sid),
+                name: tagName,
+                color: s.color || '#4a4339',
+                sort_order: 0,
+                created_at: '',
+              } as Tag;
+            })
+            .filter(Boolean) as Tag[];
+          t.tags = [...(t.tags || []), ...specTags];
+        } catch (_) {
+          // ignore
+        }
+      }
+      setCompletedTasks(loaded);
+    } catch (error) {
+      console.error('Failed to load completed tasks:', error);
     }
   };
 
@@ -339,6 +392,20 @@ const App: React.FC = () => {
     }
   };
 
+  /** 从万里长征页面创建任务 */
+  const handleCreateTaskFromSpecial = async (specialId: number) => {
+    try {
+      const special = specials.find((s) => s.id === specialId);
+      if (!special) return;
+      setInitialSpecialIds([specialId]);
+      setEditingTask(null);
+      setExtendingFromTask(null);
+      setIsModalOpen(true);
+    } catch (err) {
+      console.error('Failed to create task from special:', err);
+    }
+  };
+
   /** 「扩展任务」：从详情弹窗触发，关闭详情后打开 TaskModal 扩展模式 */
   const handleExtend = (task: Task) => {
     setViewingTask(null);
@@ -384,6 +451,26 @@ const App: React.FC = () => {
       }
     }
 
+    // 为每个万里长征关联创建对应的标签（如果不存在）
+    // 这样任务卡片上会显示「万里长征: xxx」标签
+    for (const specialId of specialIdsFromSelected) {
+      const special = specials.find((s) => s.id === specialId);
+      if (!special) continue;
+      const tagName = `万里长征: ${special.title}`;
+      const existingTag = tags.find((t) => t.name === tagName);
+      if (!existingTag) {
+        const created = await window.electronAPI.createTag(tagName, special.color || '#4a4339');
+        if (created && (created as Tag).id) {
+          tagIdsFromSelected.push((created as Tag).id);
+        }
+      } else {
+        // 标签已存在，确保选中
+        if (!tagIdsFromSelected.includes(existingTag.id)) {
+          tagIdsFromSelected.push(existingTag.id);
+        }
+      }
+    }
+
     if ('id' in taskData && taskData.id) {
       const updated = await window.electronAPI.updateTask(taskData as Partial<Task> & { id: number });
       // 同步标签
@@ -400,8 +487,9 @@ const App: React.FC = () => {
       }
     }
     loadTasks();
-    // task-only 模式下保存后关闭窗口
+    // task-only 模式下保存后通知主窗口刷新并关闭窗口
     if (isTaskOnlyMode) {
+      (window as any).electronAPI.refreshTasks?.();
       (window as any).electronAPI.closeTaskOnlyWindow?.();
     }
     loadTags();
@@ -430,6 +518,22 @@ const App: React.FC = () => {
     await loadTasks(); // 任务上的标签可能也被清掉
   };
 
+  const handleArchiveDoneTasks = async () => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    try {
+      const archivedCount = await window.electronAPI.archiveDoneTasks(todayStr);
+      if (archivedCount > 0) {
+        console.log(`[Archive] Archived ${archivedCount} tasks`);
+      }
+      await loadTasks();
+      await loadCompletedTasks();
+      setArchiveRefreshKey((k) => k + 1);
+    } catch (err) {
+      console.error('Failed to archive tasks:', err);
+    }
+  };
+
   const getTasksByStatus = (status: TaskStatus) => {
     return tasks.filter((t) => t.status === status && t.parent_id === null);
   };
@@ -454,6 +558,8 @@ const App: React.FC = () => {
               (window as any).electronAPI.closeTaskOnlyWindow?.();
             }}
             onSave={handleSave}
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         )}
       </>
@@ -500,6 +606,16 @@ const App: React.FC = () => {
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
               {!sidebarCollapsed && <span>雁过留痕</span>}
+            </button>
+            <button
+              className={`sidebar-item ${currentPage === 'completed' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('completed')}
+              title="告一段落"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {!sidebarCollapsed && <span>告一段落</span>}
             </button>
             <button
               className={`sidebar-item ${currentPage === 'okr' ? 'active' : ''}`}
@@ -569,6 +685,7 @@ const App: React.FC = () => {
                     onDelete={handleDelete}
                     onAddTask={column.id === 'todo' ? handleAddTask : undefined}
                     onShowGtdFlow={column.id === 'todo' ? handleShowGtdFlow : undefined}
+                    onArchiveDoneTasks={column.id === 'done' ? handleArchiveDoneTasks : undefined}
                   />
                 ))}
               </div>
@@ -583,12 +700,23 @@ const App: React.FC = () => {
             </DndContext>
           )}
 
+          {currentPage === 'completed' && (
+            <CompletedPage
+              tasks={completedTasks}
+              tags={tags}
+              onEdit={handleEditWithAssociations}
+              onDelete={handleDelete}
+              onExtend={handleExtend}
+              onViewTask={handleView}
+            />
+          )}
+
           {currentPage === 'okr' && (
             <OkrPage />
           )}
 
           {currentPage === 'special' && (
-            <SpecialPage />
+            <SpecialPage onCreateTask={handleCreateTaskFromSpecial} />
           )}
 
           {currentPage === 'archived' && (
@@ -649,6 +777,8 @@ const App: React.FC = () => {
             setInitialSpecialIds([]);
           }}
           onSave={handleSave}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
       )}
 
@@ -692,14 +822,12 @@ const App: React.FC = () => {
           initialDate={initialSummaryDate || todayDateStr}
           archivedTasks={dayArchivedTasks}
           onViewTask={(t) => {
-            // 关闭 summary 弹窗，跳到该 task 详情
             setSummaryOpen(false);
             setInitialSummaryDate(undefined);
             setDayArchivedTasks([]);
             setViewingTask(t);
           }}
           onDateChange={async (date) => {
-            // 日期变更时刷新 summary 内容和归档任务
             setInitialSummaryDate(date);
             try {
               const summary = await window.electronAPI.getSummary(date);
@@ -723,17 +851,19 @@ const App: React.FC = () => {
               const archivedCount = await window.electronAPI.archiveDoneTasks(date);
               if (archivedCount > 0) {
                 console.log(`[Summary] Archived ${archivedCount} tasks for ${date}`);
+                setToast({ open: true, message: `已成功归档 ${archivedCount} 个任务`, type: 'success' });
               }
               setArchiveRefreshKey((k) => k + 1);
               if (date === todayDateStr) {
                 setTodaySummary(content);
               }
               await loadTasks();
+              await loadCompletedTasks();
               setSummaryOpen(false);
               setInitialSummaryDate(undefined);
             } catch (err) {
               console.error('Failed to save summary:', err);
-              alert('保存总结失败：' + (err as Error).message);
+              setToast({ open: true, message: '保存总结失败：' + (err as Error).message, type: 'error' });
             }
           }}
           onDelete={async (date) => {
@@ -748,11 +878,18 @@ const App: React.FC = () => {
               setDayArchivedTasks([]);
             } catch (err) {
               console.error('Failed to delete summary:', err);
-              alert('删除总结失败：' + (err as Error).message);
+              setToast({ open: true, message: '删除总结失败：' + (err as Error).message, type: 'error' });
             }
           }}
         />
       )}
+
+      <Toast
+        open={toast.open}
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast({ ...toast, open: false })}
+      />
     </div>
   );
 };

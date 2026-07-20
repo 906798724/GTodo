@@ -18,6 +18,9 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+    body[data-theme="dark"] {
+      background: #1a1a1a;
+    }
     #root {
       width: 100%;
       height: 100vh;
@@ -27,6 +30,14 @@
 <body>
   <div id="root"></div>
   <script>var global = window;</script>
+  <script>
+    try {
+      var savedTheme = localStorage.getItem('gtodo-theme');
+      if (savedTheme === 'dark') {
+        document.body.setAttribute('data-theme', 'dark');
+      }
+    } catch (e) {}
+  </script>
   <script src="./index.js"></script>
 </body>
 </html>

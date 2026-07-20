@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Task } from '../types';
+import { DndContext, DragEndEvent, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { useSortable } from '@dnd-kit/sortable';
+import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface Special {
   id: number;
@@ -25,7 +29,7 @@ interface Milestone {
   updated_at: string;
 }
 
-export const SpecialPage: React.FC = () => {
+export const SpecialPage: React.FC<{ onCreateTask?: (specialId: number) => void }> = ({ onCreateTask }) => {
   const [specials, setSpecials] = useState<Special[]>([]);
   const [tasksBySpecial, setTasksBySpecial] = useState<Map<number, Task[]>>(new Map());
   const [milestonesBySpecial, setMilestonesBySpecial] = useState<Map<number, Milestone[]>>(new Map());
@@ -48,6 +52,238 @@ export const SpecialPage: React.FC = () => {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id as number;
+    const overId = over.id as number;
+
+    const oldIndex = specials.findIndex((s) => s.id === activeId);
+    const newIndex = specials.findIndex((s) => s.id === overId);
+
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+    const reordered = arrayMove(specials, oldIndex, newIndex);
+    setSpecials(reordered);
+
+    try {
+      for (let i = 0; i < reordered.length; i++) {
+        await window.electronAPI.updateSpecial(reordered[i].id, {
+          sort_order: i,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to update special sort order:', err);
+      await loadSpecials();
+    }
+  };
+
+  const SortableSpecialCard: React.FC<{ special: Special; tasks: Task[]; milestones: Milestone[] }> = ({
+    special,
+    tasks,
+    milestones,
+  }) => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+      id: special.id,
+    });
+
+    const style: React.CSSProperties = {
+      transform: CSS.Transform.toString(transform),
+      transition: isDragging ? 'none' : transition,
+      opacity: isDragging ? 0.5 : 1,
+      zIndex: isDragging ? 1000 : 1,
+      cursor: 'grab',
+    };
+
+    const dueStatus = getDueStatus(special.due_date);
+    const completed = completedCount(milestones);
+    const total = totalCount(milestones);
+
+    return (
+      <div
+        key={special.id}
+        className="special-card"
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+      >
+        <div className="special-card-header">
+          <h3>{special.title}</h3>
+          <div className="special-card-actions">
+            <button
+              type="button"
+              className="special-action-btn"
+              onClick={() => onCreateTask?.(special.id)}
+              title="创建关联任务"
+              disabled={busy}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="special-action-btn"
+              onClick={() => handleOpenSpecialForm(special)}
+              title="编辑"
+              disabled={busy}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="special-action-btn"
+              onClick={() => handleDeleteSpecial(special.id)}
+              title="删除"
+              disabled={busy}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        {special.description && (
+          <p className="special-card-desc">{special.description}</p>
+        )}
+        <div className="special-card-meta">
+          {dueStatus && (
+            <span className={`special-due ${dueStatus.className}`}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              {dueStatus.label}
+            </span>
+          )}
+          <span className="special-task-count">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 11l3 3L22 4"/>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            {tasks.length} 个任务
+          </span>
+          {total > 0 && (
+            <span className="special-progress">
+              里程碑 {completed}/{total}
+            </span>
+          )}
+        </div>
+
+        {/* 里程碑区块 - 时间线布局 */}
+        <div className="special-milestones">
+          <div className="milestones-header">
+            <span className="milestones-title">里程碑时间线</span>
+            <button
+              type="button"
+              className="milestone-add-btn"
+              onClick={() => handleOpenMilestoneForm(special.id)}
+              disabled={busy}
+            >
+              + 添加
+            </button>
+          </div>
+          {milestones.length === 0 ? (
+            <div className="milestones-empty">暂无里程碑，点击右上角添加</div>
+          ) : (
+            <div className="milestone-timeline">
+              {milestones.map((m, idx) => {
+                const isLast = idx === milestones.length - 1;
+                const mDue = m.due_date ? getDueStatus(m.due_date, m.completed === 1) : null;
+                return (
+                  <div
+                    key={m.id}
+                    className={`timeline-node ${m.completed === 1 ? 'is-completed' : ''}`}
+                  >
+                    <div className="timeline-rail">
+                      <button
+                        type="button"
+                        className="timeline-dot"
+                        onClick={() => handleToggleMilestone(m)}
+                        disabled={busy}
+                        title={m.completed === 1 ? '标记为未完成' : '标记为已完成'}
+                      >
+                        {m.completed === 1 && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </button>
+                      {!isLast && <div className="timeline-line" />}
+                    </div>
+                    <div className="timeline-card">
+                      <div className="timeline-card-header">
+                        <span className="timeline-title">{m.title}</span>
+                        <div className="timeline-card-actions">
+                          <button
+                            type="button"
+                            className="milestone-action-btn"
+                            onClick={() => handleOpenMilestoneForm(special.id, m)}
+                            title="编辑"
+                            disabled={busy}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className="milestone-action-btn"
+                            onClick={() => handleDeleteMilestone(m.id)}
+                            title="删除"
+                            disabled={busy}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      {m.description && (
+                        <p className="timeline-desc">{m.description}</p>
+                      )}
+                      {m.due_date && (
+                        <div className="timeline-meta">
+                          <span className="timeline-date">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                              <line x1="16" y1="2" x2="16" y2="6"/>
+                              <line x1="8" y1="2" x2="8" y2="6"/>
+                              <line x1="3" y1="10" x2="21" y2="10"/>
+                            </svg>
+                            {m.due_date}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const loadSpecials = async () => {
     setLoading(true);
@@ -287,171 +523,28 @@ export const SpecialPage: React.FC = () => {
             <p className="empty-hint">点击上方「新建万里长征」创建第一个万里长征</p>
           </div>
         ) : (
-          <div className="special-list">
-            {specials.map((special) => {
-              const tasks = tasksBySpecial.get(special.id) || [];
-              const milestones = milestonesBySpecial.get(special.id) || [];
-              const dueStatus = getDueStatus(special.due_date);
-              const completed = completedCount(milestones);
-              const total = totalCount(milestones);
-              return (
-                <div key={special.id} className="special-card">
-                  <div className="special-card-header">
-                    <h3>{special.title}</h3>
-                    <div className="special-card-actions">
-                      <button
-                        type="button"
-                        className="special-action-btn"
-                        onClick={() => handleOpenSpecialForm(special)}
-                        title="编辑"
-                        disabled={busy}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        className="special-action-btn"
-                        onClick={() => handleDeleteSpecial(special.id)}
-                        title="删除"
-                        disabled={busy}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  {special.description && (
-                    <p className="special-card-desc">{special.description}</p>
-                  )}
-                  <div className="special-card-meta">
-                    {dueStatus && (
-                      <span className={`special-due ${dueStatus.className}`}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                          <line x1="16" y1="2" x2="16" y2="6"/>
-                          <line x1="8" y1="2" x2="8" y2="6"/>
-                          <line x1="3" y1="10" x2="21" y2="10"/>
-                        </svg>
-                        {dueStatus.label}
-                      </span>
-                    )}
-                    <span className="special-task-count">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M9 11l3 3L22 4"/>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                      </svg>
-                      {tasks.length} 个任务
-                    </span>
-                    {total > 0 && (
-                      <span className="special-progress">
-                        里程碑 {completed}/{total}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* 里程碑区块 - 时间线布局 */}
-                  <div className="special-milestones">
-                    <div className="milestones-header">
-                      <span className="milestones-title">里程碑时间线</span>
-                      <button
-                        type="button"
-                        className="milestone-add-btn"
-                        onClick={() => handleOpenMilestoneForm(special.id)}
-                        disabled={busy}
-                      >
-                        + 添加
-                      </button>
-                    </div>
-                    {milestones.length === 0 ? (
-                      <div className="milestones-empty">暂无里程碑，点击右上角添加</div>
-                    ) : (
-                      <div className="milestone-timeline">
-                        {milestones.map((m, idx) => {
-                          const isLast = idx === milestones.length - 1;
-                          const mDue = m.due_date ? getDueStatus(m.due_date, m.completed === 1) : null;
-                          return (
-                            <div
-                              key={m.id}
-                              className={`timeline-node ${m.completed === 1 ? 'is-completed' : ''}`}
-                            >
-                              <div className="timeline-rail">
-                                <button
-                                  type="button"
-                                  className="timeline-dot"
-                                  onClick={() => handleToggleMilestone(m)}
-                                  disabled={busy}
-                                  title={m.completed === 1 ? '标记为未完成' : '标记为已完成'}
-                                >
-                                  {m.completed === 1 && (
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                      <polyline points="20 6 9 17 4 12"/>
-                                    </svg>
-                                  )}
-                                </button>
-                                {!isLast && <div className="timeline-line" />}
-                              </div>
-                              <div className="timeline-card">
-                                <div className="timeline-card-header">
-                                  <span className="timeline-title">{m.title}</span>
-                                  <div className="timeline-card-actions">
-                                    <button
-                                      type="button"
-                                      className="milestone-action-btn"
-                                      onClick={() => handleOpenMilestoneForm(special.id, m)}
-                                      title="编辑"
-                                      disabled={busy}
-                                    >
-                                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                      </svg>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="milestone-action-btn"
-                                      onClick={() => handleDeleteMilestone(m.id)}
-                                      title="删除"
-                                      disabled={busy}
-                                    >
-                                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <polyline points="3 6 5 6 21 6"/>
-                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
-                                {m.description && (
-                                  <p className="timeline-desc">{m.description}</p>
-                                )}
-                                {m.due_date && (
-                                  <div className="timeline-meta">
-                                    <span className="timeline-date">
-                                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                                        <line x1="16" y1="2" x2="16" y2="6"/>
-                                        <line x1="8" y1="2" x2="8" y2="6"/>
-                                        <line x1="3" y1="10" x2="21" y2="10"/>
-                                      </svg>
-                                      {m.due_date}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={specials.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              <div className="special-list">
+                {specials.map((special) => {
+                  const tasks = tasksBySpecial.get(special.id) || [];
+                  const milestones = milestonesBySpecial.get(special.id) || [];
+                  return (
+                    <SortableSpecialCard
+                      key={special.id}
+                      special={special}
+                      tasks={tasks}
+                      milestones={milestones}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
 

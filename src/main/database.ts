@@ -644,6 +644,28 @@ export async function getTasks(): Promise<Task[]> {
   return tasks;
 }
 
+export async function getAllCompletedTasks(): Promise<Task[]> {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  const result = db.exec(
+    'SELECT * FROM tasks WHERE status = \'done\' ORDER BY completed_at DESC, created_at DESC'
+  );
+  if (result.length === 0) {
+    return [];
+  }
+  const columns = result[0].columns;
+  const tasks: Task[] = result[0].values.map((row: any[]) => {
+    const task: Partial<Task> = {};
+    columns.forEach((col: string, index: number) => {
+      task[col as keyof Task] = row[index] ?? null;
+    });
+    return task as Task;
+  });
+  attachTagsToTasks(tasks);
+  return tasks;
+}
+
 // 生成本地时间戳（YYYY-MM-DD HH:MM:SS），避免 UTC 时区问题
 function getLocalTimestamp(): string {
   const now = new Date();
@@ -796,7 +818,7 @@ export async function archiveDoneTasksForDate(date: string): Promise<number> {
     } catch {
       continue;
     }
-    if (localDate === targetLocalDate) {
+    if (localDate <= targetLocalDate) {
       matchIds.push(id);
     }
   }

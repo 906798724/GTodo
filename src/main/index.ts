@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds } from './database';
+import { initDatabase, getTasks, getAllCompletedTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds } from './database';
 
 let mainWindow: BrowserWindow | null = null;
 let taskOnlyWindow: BrowserWindow | null = null;
@@ -380,6 +380,10 @@ ipcMain.handle('get-tasks', async () => {
   return await getTasks();
 });
 
+ipcMain.handle('get-all-completed-tasks', async () => {
+  return await getAllCompletedTasks();
+});
+
 ipcMain.handle('create-task', async (_event, task) => {
   return await createTask(task);
 });
@@ -473,14 +477,23 @@ ipcMain.handle('get-task-specials', async (_event, taskId: number) => await getT
 
 ipcMain.on('close-task-only-window', () => {
   if (taskOnlyWindow && !taskOnlyWindow.isDestroyed()) {
+    // 先通知主窗口刷新任务列表
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('tasks-updated');
+      console.log('[IPC] tasks-updated sent from close-task-only-window');
+    }
     taskOnlyWindow.close();
     taskOnlyWindow = null;
   }
 });
 
 ipcMain.on('refresh-tasks', () => {
-  if (mainWindow) {
+  console.log('[IPC] refresh-tasks received, sending tasks-updated to mainWindow');
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('tasks-updated');
+    console.log('[IPC] tasks-updated sent successfully');
+  } else {
+    console.log('[IPC] mainWindow is null or destroyed');
   }
 });
 

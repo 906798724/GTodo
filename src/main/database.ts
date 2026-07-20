@@ -776,10 +776,7 @@ export async function archiveDoneTasksForDate(date: string): Promise<number> {
   if (!db) {
     throw new Error('Database not initialized');
   }
-  // 「雁过留痕」按任务实际完成日期（completed_at 本地日期）展示，
-  // 因此 archived_at 存为完成日期对应时间戳（00:00:00），以便 LIKE 'YYYY-MM-DD%' 正确分组
   const targetLocalDate = date;
-  const archiveTimestamp = `${date} 00:00:00`;
 
   const candidates = db.exec(
     `SELECT id, completed_at FROM tasks
@@ -791,49 +788,37 @@ export async function archiveDoneTasksForDate(date: string): Promise<number> {
     return 0;
   }
 
-  const matchIds: number[] = [];
+  let archivedCount = 0;
   for (const row of candidates[0].values) {
     const id = row[0] as number;
     const completedAt = row[1] as string;
-    // 解析 completed_at 为本地 Date 对象：
-    //  - 'YYYY-MM-DD HH:MM:SS'（无 T，无 Z）：视为本地时间，用 new Date() 直接解析
-    //  - 'YYYY-MM-DDTHH:MM:SS[.sss]Z'（ISO 含 Z）：是 UTC 时间，new Date() 解析后需换算本地日期
     let localDate: string;
     try {
       let tsMs: number;
       if (completedAt.includes('T') && (completedAt.endsWith('Z') || completedAt.includes('+') || /\-\d{2}:\d{2}$/.test(completedAt))) {
-        // ISO 字符串（带时区信息）
         tsMs = new Date(completedAt).getTime();
       } else if (completedAt.includes('T')) {
-        // ISO 但无时区（极少出现），按本地处理
         tsMs = new Date(completedAt).getTime();
       } else {
-        // 本地时间戳：'YYYY-MM-DD HH:MM:SS'，将空格替换为 T 后按本地解析
         tsMs = new Date(completedAt.replace(' ', 'T')).getTime();
       }
       if (isNaN(tsMs)) continue;
       const d = new Date(tsMs);
-      // 提取本地日期 YYYY-MM-DD
       localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     } catch {
       continue;
     }
     if (localDate <= targetLocalDate) {
-      matchIds.push(id);
+      const archiveTimestamp = `${localDate} 23:59:59`;
+      db.run(`UPDATE tasks SET archived_at = ? WHERE id = ?`, [archiveTimestamp, id]);
+      archivedCount++;
     }
   }
 
-  if (matchIds.length === 0) {
-    return 0;
+  if (archivedCount > 0) {
+    saveDatabase();
   }
-
-  const placeholders = matchIds.map(() => '?').join(',');
-  db.run(
-    `UPDATE tasks SET archived_at = ? WHERE id IN (${placeholders})`,
-    [archiveTimestamp, ...matchIds]
-  );
-  saveDatabase();
-  return matchIds.length;
+  return archivedCount;
 }
 
 /**

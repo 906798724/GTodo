@@ -4,6 +4,7 @@ import { DndContext, DragEndEvent, closestCorners, PointerSensor, useSensor, use
 import { useSortable } from '@dnd-kit/sortable';
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { ConfirmModal } from './ConfirmModal';
 
 interface Special {
   id: number;
@@ -52,6 +53,15 @@ export const SpecialPage: React.FC<{ onCreateTask?: (specialId: number) => void 
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    variant?: 'default' | 'danger';
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -369,17 +379,26 @@ export const SpecialPage: React.FC<{ onCreateTask?: (specialId: number) => void 
     }
   };
 
-  const handleDeleteSpecial = async (id: number) => {
-    if (!window.confirm('删除此长期任务？相关任务和里程碑将自动解除关联。')) return;
-    setBusy(true);
-    try {
-      await window.electronAPI.deleteSpecial(id);
-      await loadSpecials();
-    } catch (err: any) {
-      setError(err?.message || '删除失败');
-    } finally {
-      setBusy(false);
-    }
+  const handleDeleteSpecial = (id: number) => {
+    setConfirmState({
+      open: true,
+      title: '删除',
+      message: '删除此长期任务？相关任务和里程碑将自动解除关联。',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        setBusy(true);
+        try {
+          await window.electronAPI.deleteSpecial(id);
+          await loadSpecials();
+        } catch (err: any) {
+          setError(err?.message || '删除失败');
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
 
   // ============ 里程碑 CRUD ============
@@ -446,17 +465,26 @@ export const SpecialPage: React.FC<{ onCreateTask?: (specialId: number) => void 
     }
   };
 
-  const handleDeleteMilestone = async (id: number) => {
-    if (!window.confirm('删除此里程碑？')) return;
-    setBusy(true);
-    try {
-      await window.electronAPI.deleteMilestone(id);
-      await loadSpecials();
-    } catch (err: any) {
-      setError(err?.message || '删除失败');
-    } finally {
-      setBusy(false);
-    }
+  const handleDeleteMilestone = (id: number) => {
+    setConfirmState({
+      open: true,
+      title: '删除',
+      message: '删除此里程碑？',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        setBusy(true);
+        try {
+          await window.electronAPI.deleteMilestone(id);
+          await loadSpecials();
+        } catch (err: any) {
+          setError(err?.message || '删除失败');
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
 
   const handleToggleMilestone = async (milestone: Milestone) => {
@@ -667,6 +695,16 @@ export const SpecialPage: React.FC<{ onCreateTask?: (specialId: number) => void 
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        variant={confirmState.variant}
+        onConfirm={() => confirmState.onConfirm()}
+        onClose={() => setConfirmState((s) => ({ ...s, open: false }))}
+      />
     </div>
   );
 };

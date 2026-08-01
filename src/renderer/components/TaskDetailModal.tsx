@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Task, Tag } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 
 interface TaskDetailModalProps {
   task: Task;
@@ -38,6 +39,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   };
 
   const tags: Tag[] = task.tags || [];
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleConfirmDelete = () => {
+    onDelete(task.id);
+    onClose();
+    setConfirmOpen(false);
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -113,12 +122,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           <button
             type="button"
             className="modal-btn danger"
-            onClick={() => {
-              if (window.confirm('确定要删除这个任务吗？此操作无法撤销。')) {
-                onDelete(task.id);
-                onClose();
-              }
-            }}
+            onClick={() => setConfirmOpen(true)}
           >
             删除
           </button>
@@ -148,6 +152,15 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           </button>
         </div>
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="删除任务"
+        message="确定要删除这个任务吗？此操作无法撤销。"
+        confirmText="删除"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmOpen(false)}
+      />
     </div>
   );
 };

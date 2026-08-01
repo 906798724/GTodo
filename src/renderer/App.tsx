@@ -15,6 +15,8 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { TagsPage } from './components/TagsPage';
 import { SettingsPage } from './components/SettingsPage';
 import { CompletedPage } from './components/CompletedPage';
+import { SonmezAdvisorPage } from './components/SonmezAdvisorPage';
+import { DailyQuoteBanner } from './components/DailyQuoteBanner';
 import { Task, Tag, TaskStatus, MAIN_COLUMNS } from './types';
 import './styles/main.css';
 
@@ -65,6 +67,47 @@ declare global {
       onTasksUpdated: (callback: () => void) => void;
       onSetTheme: (callback: (theme: string) => void) => void;
       onOpenTaskModal: (callback: () => void) => void;
+      // Sonmez 顾问
+      sonmez: {
+        getConversations: () => Promise<Array<{
+          id: string;
+          title: string;
+          created_at: string;
+          updated_at: string;
+        }>>;
+        createConversation: (title: string) => Promise<{
+          id: string;
+          title: string;
+          created_at: string;
+          updated_at: string;
+        }>;
+        renameConversation: (id: string, title: string) => Promise<void>;
+        deleteConversation: (id: string) => Promise<void>;
+        clearConversations: () => Promise<void>;
+        getMessages: (conversationId: string) => Promise<Array<{
+          id: string;
+          conversation_id: string;
+          role: 'user' | 'assistant' | 'system';
+          content: string;
+          created_at: string;
+        }>>;
+        sendMessage: (conversationId: string, message: string) => Promise<void>;
+        onStreamStart: (callback: (payload: { requestId: string; conversationId: string }) => void) => () => void;
+        onStreamChunk: (callback: (payload: { requestId: string; delta: string; reasoning: string }) => void) => () => void;
+        onStreamDone: (callback: (payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }) => void) => () => void;
+        onStreamError: (callback: (payload: { requestId: string; conversationId: string; error: string }) => void) => () => void;
+        hasApiKey: () => Promise<boolean>;
+        saveApiKey: (apiKey: string) => Promise<void>;
+        getApiKeyMasked: () => Promise<string>;
+        getModel: () => Promise<string>;
+        setModel: (model: string) => Promise<void>;
+        getBaseUrl: () => Promise<string>;
+        setBaseUrl: (baseUrl: string) => Promise<void>;
+        getThinkingEnabled: () => Promise<boolean>;
+        setThinkingEnabled: (enabled: boolean) => Promise<void>;
+        getDailyQuote: () => Promise<{ text: string; book: string; chapterTitle: string }>;
+        getRandomQuote: (exclude?: { text: string; book: string; chapterTitle: string }) => Promise<{ text: string; book: string; chapterTitle: string }>;
+      };
     };
   }
 }
@@ -108,7 +151,7 @@ const App: React.FC = () => {
     open: false,
     taskId: null,
   });
-  const [currentPage, setCurrentPage] = useState<'home' | 'completed' | 'okr' | 'special' | 'archived' | 'tags' | 'settings'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'completed' | 'okr' | 'special' | 'archived' | 'tags' | 'settings' | 'sonmez'>('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gtdFlowOpen, setGtdFlowOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -605,7 +648,7 @@ const App: React.FC = () => {
                 <polyline points="7 10 12 15 17 10"/>
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              {!sidebarCollapsed && <span>雁过留痕</span>}
+              <span>雁过留痕</span>
             </button>
             <button
               className={`sidebar-item ${currentPage === 'completed' ? 'active' : ''}`}
@@ -629,10 +672,22 @@ const App: React.FC = () => {
                 <line x1="16" y1="17" x2="8" y2="17"/>
                 <polyline points="10 9 9 9 8 9"/>
               </svg>
-              {!sidebarCollapsed && <span>有的放矢</span>}
+              <span>有的放矢</span>
             </button>
           </nav>
           <div className="sidebar-divider"></div>
+          <button
+            className={`sidebar-item ${currentPage === 'sonmez' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('sonmez')}
+            title="Sonmez"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="3.5"/>
+              <path d="M3 20c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
+              <path d="M14 5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2.5L14 14V6a1 1 0 0 1 1-1z"/>
+            </svg>
+            {!sidebarCollapsed && <span>Sonmez</span>}
+          </button>
           <button
             className={`sidebar-item ${currentPage === 'tags' ? 'active' : ''}`}
             onClick={() => setCurrentPage('tags')}
@@ -653,7 +708,7 @@ const App: React.FC = () => {
               <circle cx="12" cy="12" r="3"/>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
-            {!sidebarCollapsed && <span>设置</span>}
+            <span>设置</span>
           </button>
           <button className="sidebar-collapse" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? '展开侧边栏' : '收缩侧边栏'}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -713,6 +768,10 @@ const App: React.FC = () => {
 
           {currentPage === 'okr' && (
             <OkrPage />
+          )}
+
+          {currentPage === 'sonmez' && (
+            <SonmezAdvisorPage onGoToSettings={() => setCurrentPage('settings')} />
           )}
 
           {currentPage === 'special' && (
@@ -890,6 +949,8 @@ const App: React.FC = () => {
         type={toast.type}
         onClose={() => setToast({ ...toast, open: false })}
       />
+
+      <DailyQuoteBanner />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ObjectiveModal, ObjectiveData } from './ObjectiveModal';
 import { KeyResultModal, KeyResultData } from './KeyResultModal';
+import { Toast } from './Toast';
 
 interface Objective extends ObjectiveData {
   id: number;
@@ -37,6 +38,8 @@ export const OkrPage: React.FC = () => {
     id: null,
   });
 
+  const [toast, setToast] = useState<{ open: boolean; message: string; type: 'success' | 'info' | 'error' }>({ open: false, message: '', type: 'error' });
+
   const load = async () => {
     setLoading(true);
     try {
@@ -69,7 +72,7 @@ export const OkrPage: React.FC = () => {
       await load();
     } catch (err) {
       console.error('Save objective failed:', err);
-      alert('保存目标失败：' + (err as Error).message);
+      setToast({ open: true, message: '保存目标失败：' + (err as Error).message, type: 'error' });
     }
   };
 
@@ -80,7 +83,7 @@ export const OkrPage: React.FC = () => {
       await load();
     } catch (err) {
       console.error('Delete objective failed:', err);
-      alert('删除目标失败：' + (err as Error).message);
+      setToast({ open: true, message: '删除目标失败：' + (err as Error).message, type: 'error' });
     }
   };
 
@@ -96,7 +99,7 @@ export const OkrPage: React.FC = () => {
       await load();
     } catch (err) {
       console.error('Save KR failed:', err);
-      alert('保存关键结果失败：' + (err as Error).message);
+      setToast({ open: true, message: '保存关键结果失败：' + (err as Error).message, type: 'error' });
     }
   };
 
@@ -107,7 +110,7 @@ export const OkrPage: React.FC = () => {
       await load();
     } catch (err) {
       console.error('Delete KR failed:', err);
-      alert('删除关键结果失败：' + (err as Error).message);
+      setToast({ open: true, message: '删除关键结果失败：' + (err as Error).message, type: 'error' });
     }
   };
 
@@ -232,6 +235,13 @@ export const OkrPage: React.FC = () => {
             : undefined}
         />
       )}
+
+      <Toast
+        open={toast.open}
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+      />
     </div>
   );
 };

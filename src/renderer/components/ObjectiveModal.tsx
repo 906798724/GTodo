@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ConfirmModal } from './ConfirmModal';
 
 export interface ObjectiveData {
   id?: number;
@@ -29,6 +30,7 @@ export const ObjectiveModal: React.FC<ObjectiveModalProps> = ({ objective, onClo
   const [quarter, setQuarter] = useState(currentQuarter());
   const [progress, setProgress] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (objective) {
@@ -61,15 +63,20 @@ export const ObjectiveModal: React.FC<ObjectiveModalProps> = ({ objective, onClo
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!onDelete) return;
-    if (!window.confirm('确认删除这个目标？\n关联的关键结果也会被删除。')) return;
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!onDelete) return;
     setSaving(true);
     try {
       await onDelete();
     } finally {
       setSaving(false);
     }
+    setConfirmOpen(false);
   };
 
   return (
@@ -147,6 +154,15 @@ export const ObjectiveModal: React.FC<ObjectiveModalProps> = ({ objective, onClo
           </div>
         </form>
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="删除"
+        message="确认删除这个目标？ 关联的关键结果也会被删除。"
+        confirmText="删除"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmOpen(false)}
+      />
     </div>
   );
 };

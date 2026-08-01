@@ -92,7 +92,7 @@ function getDbPath(): string {
 //   1. 增加 SCHEMA_VERSION
 //   2. 在 MIGRATIONS 数组中添加对应的迁移函数
 // 旧的数据库会在启动时自动应用所有未执行的迁移
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 interface Migration {
   fromVersion: number;
@@ -388,6 +388,34 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    fromVersion: 14,
+    toVersion: 15,
+    description: '新增数字人 Sonmez 顾问：sonmez_conversations（会话）和 sonmez_messages（消息）表',
+    up: (db: any) => {
+      // 会话表
+      db.run(`
+        CREATE TABLE IF NOT EXISTS sonmez_conversations (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      // 消息表（user / assistant / system）
+      db.run(`
+        CREATE TABLE IF NOT EXISTS sonmez_messages (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (conversation_id) REFERENCES sonmez_conversations(id) ON DELETE CASCADE
+        )
+      `);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_sonmez_messages_conv ON sonmez_messages(conversation_id)`);
+    },
+  },
 ];
 
 // 获取当前数据库版本（通过 PRAGMA user_version）
@@ -574,6 +602,27 @@ export async function initDatabase(): Promise<void> {
   `);
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_milestones_special ON milestones(special_id)`);
+
+  // Sonmez 顾问：会话与消息表（fresh DB 直接建表；老库由 v14→v15 migration 处理）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sonmez_conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sonmez_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (conversation_id) REFERENCES sonmez_conversations(id) ON DELETE CASCADE
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sonmez_messages_conv ON sonmez_messages(conversation_id)`);
 
   // 应用数据库迁移
   runMigrations(db);
@@ -1472,4 +1521,141 @@ export async function setTaskTags(taskId: number, tagIds: number[]): Promise<voi
   }
   stmt.free();
   saveDatabase();
+}
+
+// =====================================================
+// Sonmez 顾问：会话与消息 CRUD
+// =====================================================
+
+export interface SonmezConversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SonmezMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+}
+
+/** 生成 UUID（Electron 主进程无 crypto.randomUUID 时回退） */
+function genId(): string {
+  try {
+    if (typeof (globalThis as any).crypto?.randomUUID === 'function') {
+      return (globalThis as any).crypto.randomUUID();
+    }
+  } catch (_) {
+    // ignore
+  }
+  // 简单回退：时间戳 + 随机
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** 获取所有会话（按更新时间倒序） */
+export async function getSonmezConversations(): Promise<SonmezConversation[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(
+    'SELECT id, title, created_at, updated_at FROM sonmez_conversations ORDER BY updated_at DESC, id DESC'
+  );
+  if (result.length === 0) return [];
+  return result[0].values.map((row: any[]) => ({
+    id: String(row[0]),
+    title: String(row[1] || ''),
+    created_at: String(row[2]),
+    updated_at: String(row[3]),
+  }));
+}
+
+/** 创建会话 */
+export async function createSonmezConversation(title: string = ''): Promise<SonmezConversation> {
+  if (!db) throw new Error('Database not initialized');
+  const id = genId();
+  const now = getLocalTimestamp();
+  db.run(
+    'INSERT INTO sonmez_conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    [id, title, now, now]
+  );
+  saveDatabase();
+  return { id, title, created_at: now, updated_at: now };
+}
+
+/** 重命名会话 */
+export async function renameSonmezConversation(id: string, title: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  const now = getLocalTimestamp();
+  db.run('UPDATE sonmez_conversations SET title = ?, updated_at = ? WHERE id = ?', [title, now, id]);
+  saveDatabase();
+}
+
+/** 删除会话（级联删除消息） */
+export async function deleteSonmezConversation(id: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  // sql.js 默认不开启外键级联，先手动删消息
+  db.run('DELETE FROM sonmez_messages WHERE conversation_id = ?', [id]);
+  db.run('DELETE FROM sonmez_conversations WHERE id = ?', [id]);
+  saveDatabase();
+}
+
+/** 清空所有会话 */
+export async function clearAllSonmezConversations(): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+  db.run('DELETE FROM sonmez_messages');
+  db.run('DELETE FROM sonmez_conversations');
+  saveDatabase();
+}
+
+/** 获取某会话的所有消息（按时间正序） */
+export async function getSonmezMessages(conversationId: string): Promise<SonmezMessage[]> {
+  if (!db) throw new Error('Database not initialized');
+  const result = db.exec(
+    'SELECT id, conversation_id, role, content, created_at FROM sonmez_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC',
+    [conversationId]
+  );
+  if (result.length === 0) return [];
+  return result[0].values.map((row: any[]) => ({
+    id: String(row[0]),
+    conversation_id: String(row[1]),
+    role: String(row[2]) as SonmezMessage['role'],
+    content: String(row[3] || ''),
+    created_at: String(row[4]),
+  }));
+}
+
+/** 追加一条消息 */
+export async function addSonmezMessage(
+  conversationId: string,
+  role: SonmezMessage['role'],
+  content: string
+): Promise<SonmezMessage> {
+  if (!db) throw new Error('Database not initialized');
+  const id = genId();
+  const now = getLocalTimestamp();
+  db.run(
+    'INSERT INTO sonmez_messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+    [id, conversationId, role, content, now]
+  );
+  // 更新会话的 updated_at
+  db.run('UPDATE sonmez_conversations SET updated_at = ? WHERE id = ?', [now, conversationId]);
+  saveDatabase();
+  return { id, conversation_id: conversationId, role, content, created_at: now };
+}
+
+/**
+ * 获取某会话用于 LLM 的历史消息（仅 user / assistant，按时间正序）
+ * @param maxRounds 最大保留轮数（一轮 = 一条 user + 一条 assistant）
+ */
+export async function getSonmezHistoryForLLM(
+  conversationId: string,
+  maxRounds: number = 10
+): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
+  if (!db) throw new Error('Database not initialized');
+  const all = await getSonmezMessages(conversationId);
+  const filtered = all.filter((m) => m.role === 'user' || m.role === 'assistant');
+  // 保留最后 maxRounds * 2 条
+  const sliced = filtered.slice(-Math.max(0, filtered.length - maxRounds * 2));
+  return sliced.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 }

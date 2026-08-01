@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ConfirmModal } from './ConfirmModal';
 
 export interface KeyResultData {
   id?: number;
@@ -20,6 +21,7 @@ export const KeyResultModal: React.FC<KeyResultModalProps> = ({ kr, objectiveId,
   const [title, setTitle] = useState('');
   const [progress, setProgress] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (kr) {
@@ -47,15 +49,20 @@ export const KeyResultModal: React.FC<KeyResultModalProps> = ({ kr, objectiveId,
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!onDelete) return;
-    if (!window.confirm('确认删除这个关键结果？')) return;
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!onDelete) return;
     setSaving(true);
     try {
       await onDelete();
     } finally {
       setSaving(false);
     }
+    setConfirmOpen(false);
   };
 
   return (
@@ -112,6 +119,15 @@ export const KeyResultModal: React.FC<KeyResultModalProps> = ({ kr, objectiveId,
           </div>
         </form>
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="删除"
+        message="确认删除这个关键结果？"
+        confirmText="删除"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmOpen(false)}
+      />
     </div>
   );
 };

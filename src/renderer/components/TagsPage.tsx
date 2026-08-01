@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Tag } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 
 interface TagsPageProps {
   tags: Tag[];
@@ -25,6 +26,15 @@ export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onUpdate, on
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState(COLOR_PRESETS[0]);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    variant?: 'default' | 'danger';
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const handleAdd = async () => {
     if (!name.trim()) {
@@ -76,16 +86,25 @@ export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onUpdate, on
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm('删除此标签？相关任务将自动解除关联。')) return;
-    setBusy(true);
-    try {
-      await onDelete(id);
-    } catch (err: any) {
-      setError(err?.message || '删除失败');
-    } finally {
-      setBusy(false);
-    }
+  const handleDelete = (id: number) => {
+    setConfirmState({
+      open: true,
+      title: '删除',
+      message: '删除此标签？相关任务将自动解除关联。',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmState((s) => ({ ...s, open: false }));
+        setBusy(true);
+        try {
+          await onDelete(id);
+        } catch (err: any) {
+          setError(err?.message || '删除失败');
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
 
   return (
@@ -238,6 +257,16 @@ export const TagsPage: React.FC<TagsPageProps> = ({ tags, onCreate, onUpdate, on
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        variant={confirmState.variant}
+        onConfirm={() => confirmState.onConfirm()}
+        onClose={() => setConfirmState((s) => ({ ...s, open: false }))}
+      />
     </div>
   );
 };

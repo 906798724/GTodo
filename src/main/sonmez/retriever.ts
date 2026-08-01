@@ -1,0 +1,337 @@
+import knowledgeBaseData from './knowledgeBase.json';
+
+export interface KnowledgeChapter {
+  id: string;
+  title: string;
+  book: string;
+  tags: string[];
+  summary: string;
+  keyPoints: string[];
+}
+
+interface KnowledgeBaseShape {
+  version: string;
+  books: Record<string, string>;
+  chapters: KnowledgeChapter[];
+}
+
+const KB: KnowledgeBaseShape = knowledgeBaseData as KnowledgeBaseShape;
+
+/** 获取所有章节（用于调试或全量展示） */
+export function getAllChapters(): KnowledgeChapter[] {
+  return KB.chapters;
+}
+
+/** 获取书籍名称映射 */
+export function getBookNames(): Record<string, string> {
+  return KB.books;
+}
+
+/**
+ * 同义词词典（口语化表达 → 知识库 tag）
+ *
+ * 当用户使用口语化/同义词（如"博主"）提问时，自动扩展为对应的知识库 tag（如"博客"）。
+ * 解决用户用词与知识库标签不一致的问题。
+ *
+ * key = 口语词（用户可能说），value = 知识库 tag
+ */
+const SYNONYM_DICT: Record<string, string[]> = {
+  // 博客/写作
+  '博主': ['博客', '写作'],
+  '写作': ['博客', '写作'],
+  '文章': ['博客', '写作'],
+  '分享': ['博客', '分享', '自我营销'],
+  '写文章': ['博客', '写作'],
+  '输出': ['博客', '写作', '教'],
+  '公众号': ['博客', '写作', '自我营销'],
+  '知乎': ['博客', '写作', '自我营销'],
+
+  // 拖延/效率
+  '拖延': ['拖延'],
+  '懒': ['拖延'],
+  '不想做': ['拖延'],
+  '开始不了': ['拖延', '任务分解'],
+  '半途而废': ['坚持', '习惯', '毅力'],
+  '坚持': ['习惯', '坚持'],
+  '放弃': ['坚持', '习惯'],
+  '执行力': ['执行', '拖延'],
+  '行动': ['执行', '拖延'],
+  '低效': ['效率', '生产力', '时间'],
+  '忙碌': ['效率', '时间', '生产力'],
+  '忙': ['效率', '时间'],
+  '效率低': ['效率', '生产力'],
+  '产出低': ['效率', '生产力'],
+  '拖延症': ['拖延'],
+
+  // 学习/成长
+  '晋升': ['职业', '晋升', '升职'],
+  '升职': ['晋升', '职业'],
+  '成长': ['学习', '成长'],
+  '学不动': ['学习', '倦怠'],
+  '考研': ['学历', '学习', '教育'],
+  '读研': ['学历', '学习', '教育'],
+  '研究生': ['学历', '学习', '教育'],
+  '学历': ['学历', '教育'],
+  '科班': ['学历', '教育'],
+  '转行': ['转行', '入门', '自学'],
+  '入门': ['入门', '自学', '学习'],
+  '新手': ['入门', '新手'],
+  '没基础': ['入门', '新手', '自学'],
+  '零基础': ['入门', '新手', '自学'],
+  '基础': ['入门', '学习'],
+  '学会': ['学习', '入门'],
+  '不会': ['入门', '学习'],
+  '画饼': ['晋升', '职业'],
+  'pua': ['沟通', '心态', '心理'],
+  '内卷': ['心态', '倦怠'],
+  '裸辞': ['辞职', '跳槽', '失业'],
+  '应届': ['第一份工作', '新人', '求职'],
+  '校招': ['第一份工作', '新人', '求职'],
+  '进大厂': ['第一份工作', '求职', '选择'],
+  '被替代': ['持续学习', '心态', '职业'],
+  '淘汰': ['持续学习', '心态', '职业'],
+  'ai': ['持续学习', '心态'],
+  '八卦': ['沟通', '团队', '人际关系'],
+  '坏话': ['沟通', '团队', '人际关系'],
+  '排挤': ['沟通', '团队', '心理'],
+  '孤立': ['沟通', '团队', '心理'],
+
+  // 心态/情绪
+  '焦虑': ['心态', '压力', '心理健康'],
+  '比较': ['心态', '焦虑'],
+  '没意义': ['心态', '倦怠'],
+  '迷茫': ['心态', '职业', '倦怠'],
+  '压力大': ['压力', '倦怠', '心理健康'],
+  '崩溃': ['倦怠', '压力', '心理健康'],
+  '摆烂': ['倦怠', '心态'],
+  '内耗': ['心态', '压力'],
+  '丧': ['倦怠', '心态'],
+  '后悔': ['跳槽', '决策'],
+  '不甘': ['心态', '跳槽'],
+
+  // 跳槽/求职
+  '跳槽': ['跳槽', '离职'],
+  '换工作': ['跳槽', '离职'],
+  '离职': ['跳槽', '离职'],
+  '辞职': ['跳槽', '离职', '辞职'],
+  '被裁': ['跳槽', '失业'],
+  '失业': ['跳槽', '失业'],
+  '找工作': ['求职', '简历', '面试'],
+  '找工作难': ['求职', '简历', '面试'],
+  '面试': ['面试', '求职'],
+  'hr': ['求职', '面试', '薪资'],
+  '压价': ['薪资', '谈判'],
+  '谈薪': ['薪资', '谈判'],
+  '谈判': ['薪资', '谈判'],
+  '薪资': ['薪资', '薪酬'],
+  '薪酬': ['薪资', '薪酬'],
+  '工资': ['薪资', '薪酬'],
+  'offer': ['薪资', 'offer', '求职'],
+  '选offer': ['offer', '求职', '跳槽'],
+
+  // 财务
+  '理财': ['理财', '投资', '财务'],
+  '赚钱': ['理财', '投资', '财务', '财务自由'],
+  '财务自由': ['财务自由', 'FIRE', '退休'],
+  '退休': ['退休', '财务自由'],
+  '买房': ['理财', '房地产', '投资', '财务'],
+  '存钱': ['储蓄', '理财'],
+  '月光': ['储蓄', '理财'],
+  '贷款': ['理财', '债务', '财务'],
+  '债务': ['理财', '债务'],
+
+  // 健康
+  '健身': ['健身', '运动'],
+  '锻炼': ['健身', '运动'],
+  '运动': ['健身', '运动'],
+  '减肥': ['健身', '饮食'],
+  '健康': ['健康', '健身'],
+  '久坐': ['健康', '久坐', '健身'],
+  '腰疼': ['健康', '久坐'],
+  '颈椎': ['健康', '久坐'],
+  '睡眠': ['健康', '睡眠', '休息'],
+  '失眠': ['健康', '睡眠'],
+  '亚健康': ['健康', '倦怠'],
+
+  // 工作方式
+  '远程': ['远程工作', '在家办公'],
+  '居家办公': ['远程工作'],
+  '在家办公': ['远程工作'],
+  '自由职业': ['自由职业', '咨询', '独立'],
+  '独立开发': ['自由职业', '独立', '创业'],
+  '副业': ['副业', '被动收入', '创业'],
+  '被动收入': ['副业', '产品', '创业'],
+  '自由': ['自由职业', '独立', '财务自由'],
+  '外包': ['自由职业', '咨询', '独立'],
+  '接私活': ['自由职业', '咨询'],
+  '创业': ['创业'],
+  '当老板': ['创业'],
+
+  // 沟通/职场
+  '沟通': ['沟通'],
+  '汇报': ['沟通', '演讲'],
+  '演讲': ['演讲', '表达'],
+  '表达': ['演讲', '沟通'],
+  '向上管理': ['沟通', '领导'],
+  '领导': ['领导', '管理'],
+  '管理': ['管理', '领导'],
+  '当leader': ['管理', '领导'],
+  '带人': ['管理', '领导'],
+  '导师': ['导师', 'mentor'],
+  '请教': ['导师', '学习'],
+  '人脉': ['人脉', '社交', '内推'],
+  '内推': ['内推', '人脉', '求职'],
+  '同事': ['沟通', '团队', '人脉'],
+  '矛盾': ['沟通', '团队', '冲突'],
+  '冲突': ['沟通', '冲突'],
+  '反馈': ['沟通', '反馈'],
+
+  // 时间管理
+  '时间管理': ['时间', '生产力', '效率'],
+  '番茄': ['番茄', '生产力'],
+  '番茄钟': ['番茄', '生产力'],
+  'todo': ['任务分解', 'GTD', '执行'],
+  'gtodo': ['任务分解', 'GTD', '执行'],
+  '待办': ['任务分解', 'GTD', '执行'],
+  '计划': ['目标', '计划', '周回顾'],
+  '周报': ['周回顾', '复盘'],
+  '复盘': ['周回顾', '反思', '复盘'],
+  '回顾': ['周回顾', '回顾'],
+
+  // 技术/职业兴趣
+  '35岁': ['年龄', '职业', '倦怠'],
+  '中年': ['年龄', '职业', '倦怠'],
+  '门槛': ['学历', '入门', '转行'],
+  '35岁危机': ['年龄', '职业倦怠', '转型'],
+  '转型': ['转型', '转行', '管理'],
+  '转岗': ['转型', '转行'],
+
+  // 婚姻/家庭
+  '对象': ['恋爱', '婚姻'],
+  '相亲': ['恋爱', '婚姻'],
+  '恋爱': ['恋爱', '婚姻'],
+  '婚姻': ['婚姻', '恋爱'],
+  '分手': ['恋爱', '情绪'],
+  '育儿': ['育儿', '家庭'],
+  '养娃': ['育儿', '家庭'],
+  '娃': ['育儿', '家庭'],
+};
+
+/**
+ * 简易中文分词：按非汉字字母数字字符切分
+ * 不依赖 jieba，足够支撑关键词命中检索
+ *
+ * 保留规则：
+ * - 长度 ≥ 2 的 token 保留
+ * - 长度 1 的中文单字也保留（"忙"、"懒"、"累"等单字实词有检索意义）
+ * - 长度为 1 的纯字母/数字 token 过滤
+ */
+function tokenize(text: string): string[] {
+  if (!text) return [];
+  // 中英文标点都作为分隔符（包括中英文逗号、句号、顿号、引号、空格、换行等）
+  const raw = text
+    .toLowerCase()
+    .split(/[^一-龥a-z0-9]+/i)
+    .filter(Boolean);
+  return raw.filter((t) => {
+    if (t.length >= 2) return true;
+    // 单字中文保留
+    if (/[一-龥]/.test(t)) return true;
+    return false;
+  });
+}
+
+/**
+ * 把原始 token 扩展为同义词列表（包括原词 + 同义词）
+ * 注意：同义词作为「次要命中信号」，权重低于原始 token
+ *
+ * 增强：会扫描整个原始 query，尝试用同义词字典的 key 做子串匹配，
+ * 解决长词包含短词但分词器无法识别的问题（如"产出很低"包含"产出低"）
+ */
+function expandTokens(tokens: string[], originalQuery: string): Array<{ token: string; isSynonym: boolean }> {
+  const result: Array<{ token: string; isSynonym: boolean }> = [];
+  for (const tk of tokens) {
+    result.push({ token: tk, isSynonym: false });
+    const synonyms = SYNONYM_DICT[tk];
+    if (synonyms) {
+      for (const syn of synonyms) {
+        result.push({ token: syn, isSynonym: true });
+      }
+    }
+  }
+  // 子串匹配：扫描整个 query 找出所有同义词命中
+  const lowerQuery = originalQuery.toLowerCase();
+  for (const key of Object.keys(SYNONYM_DICT)) {
+    if (lowerQuery.includes(key)) {
+      // 避免重复添加
+      const alreadyAdded = result.some((r) => r.token === key);
+      if (!alreadyAdded) {
+        result.push({ token: key, isSynonym: false });
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * 计算某章节对一组 token 的得分
+ * - tag 精确命中：3（原始）/ 1.5（同义）
+ * - tag 包含命中：2（原始）/ 1（同义）
+ * - title 命中：2（原始）/ 1（同义）
+ * - summary 命中：1（原始）/ 0.5（同义）
+ * - keyPoints 命中：0.5（原始）/ 0.25（同义）
+ */
+function matchScore(chapter: KnowledgeChapter, tokens: Array<{ token: string; isSynonym: boolean }>): number {
+  let score = 0;
+  const titleLower = chapter.title.toLowerCase();
+  const tagsLower = chapter.tags.map((t) => t.toLowerCase());
+  const summaryLower = chapter.summary.toLowerCase();
+  const keyPointsLower = chapter.keyPoints.map((k) => k.toLowerCase());
+
+  for (const { token, isSynonym } of tokens) {
+    const weight = isSynonym ? 0.5 : 1;
+
+    // tag 精确命中
+    if (tagsLower.includes(token)) {
+      score += 3 * weight;
+    }
+    // tag 包含命中
+    else if (tagsLower.some((t) => t.includes(token) || token.includes(t))) {
+      score += 2 * weight;
+    }
+    // title 命中
+    else if (titleLower.includes(token)) {
+      score += 2 * weight;
+    }
+    // keyPoints 命中（中重要，作者的核心观点）
+    else if (keyPointsLower.some((kp) => kp.includes(token))) {
+      score += 1.5 * weight;
+    }
+    // summary 命中（最轻量）
+    else if (summaryLower.includes(token)) {
+      score += 1 * weight;
+    }
+  }
+
+  return score;
+}
+
+/**
+ * 基于用户问题检索相关知识章节
+ * @param question 用户提问
+ * @param topK 返回前 K 条（默认 3）
+ * @returns 命中的章节列表（按相关度降序）
+ */
+export function retrieveKnowledge(question: string, topK: number = 3): KnowledgeChapter[] {
+  const tokens = tokenize(question);
+  if (tokens.length === 0) return [];
+
+  const expanded = expandTokens(tokens, question);
+  const scored = KB.chapters
+    .map((ch) => ({ chapter: ch, score: matchScore(ch, expanded) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
+
+  return scored.map((item) => item.chapter);
+}

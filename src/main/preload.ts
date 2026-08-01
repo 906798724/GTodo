@@ -65,4 +65,66 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenTaskModal: (callback: () => void) => {
     ipcRenderer.on('open-task-modal', callback);
   },
+  // ===== Sonmez 顾问 =====
+  sonmez: {
+    // 会话 CRUD
+    getConversations: () => ipcRenderer.invoke('sonmez-get-conversations'),
+    createConversation: (title: string) => ipcRenderer.invoke('sonmez-create-conversation', title),
+    renameConversation: (id: string, title: string) =>
+      ipcRenderer.invoke('sonmez-rename-conversation', id, title),
+    deleteConversation: (id: string) => ipcRenderer.invoke('sonmez-delete-conversation', id),
+    clearConversations: () => ipcRenderer.invoke('sonmez-clear-conversations'),
+    getMessages: (conversationId: string) =>
+      ipcRenderer.invoke('sonmez-get-messages', conversationId),
+    // 发送消息（流式）
+    sendMessage: (conversationId: string, message: string) =>
+      ipcRenderer.invoke('sonmez-send-message', { conversationId, message }),
+    // 流式事件监听
+    onStreamStart: (callback: (payload: { requestId: string; conversationId: string }) => void) => {
+      const handler = (_event: unknown, payload: { requestId: string; conversationId: string }) =>
+        callback(payload);
+      ipcRenderer.on('sonmez-stream-start', handler);
+      return () => ipcRenderer.removeListener('sonmez-stream-start', handler);
+    },
+    onStreamChunk: (callback: (payload: { requestId: string; delta: string; reasoning: string }) => void) => {
+      const handler = (_event: unknown, payload: { requestId: string; delta: string; reasoning: string }) =>
+        callback(payload);
+      ipcRenderer.on('sonmez-stream-chunk', handler);
+      return () => ipcRenderer.removeListener('sonmez-stream-chunk', handler);
+    },
+    onStreamDone: (
+      callback: (payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }) => void
+    ) => {
+      const handler = (
+        _event: unknown,
+        payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }
+      ) => callback(payload);
+      ipcRenderer.on('sonmez-stream-done', handler);
+      return () => ipcRenderer.removeListener('sonmez-stream-done', handler);
+    },
+    onStreamError: (
+      callback: (payload: { requestId: string; conversationId: string; error: string }) => void
+    ) => {
+      const handler = (
+        _event: unknown,
+        payload: { requestId: string; conversationId: string; error: string }
+      ) => callback(payload);
+      ipcRenderer.on('sonmez-stream-error', handler);
+      return () => ipcRenderer.removeListener('sonmez-stream-error', handler);
+    },
+    // API Key 与模型配置
+    hasApiKey: () => ipcRenderer.invoke('sonmez-has-api-key'),
+    saveApiKey: (apiKey: string) => ipcRenderer.invoke('sonmez-save-api-key', apiKey),
+    getApiKeyMasked: () => ipcRenderer.invoke('sonmez-get-api-key-masked'),
+    getModel: () => ipcRenderer.invoke('sonmez-get-model'),
+    setModel: (model: string) => ipcRenderer.invoke('sonmez-set-model', model),
+    getBaseUrl: () => ipcRenderer.invoke('sonmez-get-base-url'),
+    setBaseUrl: (baseUrl: string) => ipcRenderer.invoke('sonmez-set-base-url', baseUrl),
+    getThinkingEnabled: () => ipcRenderer.invoke('sonmez-get-thinking-enabled'),
+    setThinkingEnabled: (enabled: boolean) => ipcRenderer.invoke('sonmez-set-thinking-enabled', enabled),
+    // 每日金句：首页 Banner + Sonmez 空状态使用
+    getDailyQuote: () => ipcRenderer.invoke('sonmez-get-daily-quote'),
+    getRandomQuote: (exclude?: { text: string; book: string; chapterTitle: string }) =>
+      ipcRenderer.invoke('sonmez-get-random-quote', exclude),
+  },
 });

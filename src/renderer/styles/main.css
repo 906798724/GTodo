@@ -55,6 +55,31 @@
   --scrollbar-thumb: #3a3a3a;
 }
 
+/* 全局滚动条样式：统一覆盖系统默认滚动条
+   已有的元素级滚动条规则（如 .column-content 的 4px 宽度）特异性更高，会覆盖此处默认值 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
@@ -62,6 +87,89 @@
   padding: 16px;
   background: var(--bg-primary);
   transition: background 0.3s ease;
+}
+
+/* ============================================
+ * 每日金句 Banner（底部状态栏）
+ * - 跨页面常驻
+ * - 同一天展示同一金句（按日期 seed）
+ * - 支持"换一条"、"今日关闭"
+ * - 不显示在每日首启，仅作为常驻状态栏
+ * ============================================ */
+.daily-quote-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-top: 12px;
+  padding: 6px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  min-height: 30px;
+  transition: opacity 0.25s ease;
+}
+
+.daily-quote-banner.fading {
+  opacity: 0.3;
+}
+
+.daily-quote-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--status-waited);
+}
+
+.daily-quote-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.daily-quote-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.daily-quote-banner:hover .daily-quote-actions {
+  opacity: 1;
+}
+
+.daily-quote-refresh,
+.daily-quote-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.daily-quote-refresh:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.daily-quote-close:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
 }
 
 .header {
@@ -144,7 +252,9 @@
   flex-direction: column;
   align-items: stretch;
   padding: 12px 8px;
-  transition: width 0.3s ease;
+  /* 丝滑动画：cubic-bezier 模拟Material Design的标准缓动 */
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), padding 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
 .sidebar.collapsed {
@@ -175,9 +285,16 @@
   justify-content: flex-start;
   gap: 10px;
   padding: 0 12px;
-  transition: all 0.2s ease;
+  /* 仅过渡背景与颜色，避免 width/padding 触发重排抖动 */
+  transition: background-color 0.18s ease, color 0.18s ease;
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* 收起状态：内容居中（仅显示图标） */
+.sidebar.collapsed .sidebar-item {
+  justify-content: center;
+  padding: 0;
 }
 
 .sidebar-item:hover {
@@ -194,6 +311,19 @@
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
+  /* 文字始终保留 DOM，通过 opacity + max-width 实现淡入淡出 */
+  opacity: 1;
+  max-width: 100px;
+  transition: opacity 0.2s ease 0.05s, max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+/* 收起状态：文字淡出 + 收缩宽度 */
+.sidebar.collapsed .sidebar-item span {
+  opacity: 0;
+  max-width: 0;
+  transition: opacity 0.15s ease, max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
 }
 
 .sidebar-divider {
@@ -201,6 +331,11 @@
   height: 1px;
   background: var(--border-tertiary);
   margin: 8px auto;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed .sidebar-divider {
+  width: 24px;
 }
 
 .sidebar-collapse {
@@ -214,12 +349,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
 .sidebar-collapse:hover {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+}
+
+.sidebar-collapse svg {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .content-area {
@@ -3315,6 +3454,748 @@ body[data-mode='task-only'][data-theme='dark'] .modal-btn.save {
 [data-theme="dark"] .special-due.completed {
   background: rgba(16, 185, 129, 0.18);
   color: #34d399;
+}
+
+/* =====================================================
+ * Sonmez 顾问
+ * ===================================================== */
+
+.sonmez-page {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* 左侧会话列表 */
+.sonmez-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sonmez-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.sonmez-new-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--accent-primary);
+  color: var(--accent-on);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.sonmez-new-btn:hover {
+  background: var(--accent-hover);
+}
+
+.sonmez-clear-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sonmez-clear-btn:hover {
+  color: var(--status-done);
+  border-color: var(--status-done);
+}
+
+.sonmez-conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.sonmez-conv-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sonmez-conv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.sonmez-conv-item:hover {
+  background: var(--bg-hover);
+}
+
+.sonmez-conv-item.active {
+  background: var(--bg-tertiary);
+}
+
+.sonmez-conv-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sonmez-conv-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.sonmez-conv-item:hover .sonmez-conv-actions {
+  display: flex;
+}
+
+.sonmez-conv-action {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sonmez-conv-action:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* 右侧对话区 */
+.sonmez-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.sonmez-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.sonmez-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sonmez-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4a4339 0%, #2c2620 100%);
+  color: #f5f1ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .sonmez-avatar {
+  background: linear-gradient(135deg, #f5f5f5 0%, #b0b0b0 100%);
+  color: #0f0f0f;
+}
+
+.sonmez-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sonmez-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sonmez-status {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.sonmez-status-ok {
+  background: rgba(5, 150, 105, 0.1);
+  color: var(--status-done);
+  border-color: rgba(5, 150, 105, 0.3);
+}
+
+.sonmez-status-warn {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--status-waited);
+  border-color: rgba(217, 119, 6, 0.3);
+  cursor: pointer;
+}
+
+.sonmez-status-warn:hover {
+  background: rgba(217, 119, 6, 0.18);
+}
+
+/* 消息流 */
+.sonmez-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sonmez-welcome {
+  margin: auto;
+  max-width: 560px;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.sonmez-welcome-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4a4339 0%, #2c2620 100%);
+  color: #f5f1ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 28px;
+  margin: 0 auto 16px;
+}
+
+[data-theme="dark"] .sonmez-welcome-avatar {
+  background: linear-gradient(135deg, #f5f5f5 0%, #b0b0b0 100%);
+  color: #0f0f0f;
+}
+
+.sonmez-welcome h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.sonmez-welcome p {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.sonmez-quote {
+  margin: 0 0 24px;
+  padding: 14px 18px;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 6px;
+  text-align: left;
+}
+
+.sonmez-quote-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.7;
+}
+
+.sonmez-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sonmez-example-item {
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sonmez-example-item:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-tertiary);
+  color: var(--text-primary);
+}
+
+.sonmez-example-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 单条消息 */
+.sonmez-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 100%;
+}
+
+/* 微信风格：用户消息靠右（头像在右、气泡在左） */
+.sonmez-msg-user {
+  flex-direction: row-reverse;
+}
+
+.sonmez-msg-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sonmez-msg-user .sonmez-msg-avatar {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.sonmez-msg-assistant .sonmez-msg-avatar {
+  background: linear-gradient(135deg, #4a4339 0%, #2c2620 100%);
+  color: #f5f1ea;
+}
+
+[data-theme="dark"] .sonmez-msg-assistant .sonmez-msg-avatar {
+  background: linear-gradient(135deg, #f5f5f5 0%, #b0b0b0 100%);
+  color: #0f0f0f;
+}
+
+.sonmez-msg-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 用户消息：内容右对齐 */
+.sonmez-msg-user .sonmez-msg-body {
+  align-items: flex-end;
+}
+
+.sonmez-msg-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sonmez-msg-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.sonmez-msg-text {
+  white-space: pre-wrap;
+}
+
+.sonmez-msg-user .sonmez-msg-content {
+  /* 微信用户气泡：浅绿色背景 */
+  background: #95ec69;
+  color: #1a1a1a;
+  padding: 10px 14px;
+  border-radius: 10px;
+  display: inline-block;
+  max-width: 100%;
+}
+
+[data-theme="dark"] .sonmez-msg-user .sonmez-msg-content {
+  /* 深色模式保留微信绿色，但稍暗 */
+  background: #7bd55a;
+  color: #0f0f0f;
+}
+
+/* 打字动画 */
+.sonmez-typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.sonmez-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: sonmez-typing-bounce 1.4s infinite ease-in-out;
+}
+
+.sonmez-typing span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.sonmez-typing span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes sonmez-typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+/* 思考模式：思维链展示（可折叠） */
+.sonmez-reasoning {
+  margin-bottom: 8px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.sonmez-reasoning-summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sonmez-reasoning-summary::-webkit-details-marker {
+  display: none;
+}
+
+.sonmez-reasoning-summary::before {
+  content: '▶';
+  font-size: 9px;
+  transition: transform 0.2s ease;
+}
+
+.sonmez-reasoning[open] .sonmez-reasoning-summary::before {
+  transform: rotate(90deg);
+}
+
+.sonmez-reasoning-content {
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.6;
+  border-top: 1px dashed var(--border-secondary);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.sonmez-reasoning-content .md-paragraph {
+  margin: 6px 0;
+  color: var(--text-tertiary);
+}
+
+/* 错误提示 */
+.sonmez-error {
+  margin: 0 24px 8px;
+  padding: 10px 14px;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+[data-theme="dark"] .sonmez-error {
+  color: #f87171;
+}
+
+/* 输入区 */
+.sonmez-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.sonmez-input {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 140px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.sonmez-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.sonmez-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sonmez-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.sonmez-send-btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: var(--accent-on);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sonmez-send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.sonmez-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Markdown 渲染 */
+.md-container {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.md-paragraph {
+  margin: 0 0 10px;
+}
+
+.md-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.md-heading {
+  font-weight: 600;
+  margin: 14px 0 8px;
+  color: var(--text-primary);
+}
+
+.md-h1 { font-size: 18px; }
+.md-h2 { font-size: 16px; }
+.md-h3 { font-size: 15px; }
+
+.md-list {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.md-li {
+  margin-bottom: 4px;
+}
+
+.md-strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.md-inline-code {
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.md-code-block {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  overflow-x: auto;
+  position: relative;
+}
+
+.md-code-lang {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+}
+
+.md-code-content {
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+}
+
+/* SettingsPage 中的 Sonmez 配置样式 */
+.sonmez-apikey-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sonmez-apikey-masked {
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.sonmez-apikey-input {
+  width: 200px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.sonmez-apikey-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.sonmez-apikey-btn {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sonmez-apikey-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sonmez-apikey-btn-primary {
+  background: var(--accent-primary);
+  color: var(--accent-on);
+  border-color: var(--accent-primary);
+}
+
+.sonmez-apikey-btn-primary:hover {
+  background: var(--accent-hover);
+  color: var(--accent-on);
+}
+
+.sonmez-apikey-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sonmez-apikey-btn-danger:hover {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
+.sonmez-apikey-saved {
+  font-size: 12px;
+  color: var(--status-done);
+}
+
+.sonmez-model-select,
+.sonmez-baseurl-input {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  outline: none;
+}
+
+.sonmez-model-select {
+  cursor: pointer;
+  min-width: 180px;
+}
+
+.sonmez-baseurl-input {
+  width: 260px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Consolas', monospace;
+}
+
+.sonmez-model-select:focus,
+.sonmez-baseurl-input:focus {
+  border-color: var(--accent-primary);
 }
 
 .special-task-count {

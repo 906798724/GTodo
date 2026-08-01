@@ -1,7 +1,12 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, Tray, MenuItem } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getTasks, getAllCompletedTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds } from './database';
+import { initDatabase, getTasks, getAllCompletedTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds, getSonmezConversations, createSonmezConversation, renameSonmezConversation, deleteSonmezConversation, clearAllSonmezConversations, getSonmezMessages, addSonmezMessage, getSonmezHistoryForLLM } from './database';
+import { streamChatCompletion } from './sonmez/deepseekClient';
+import { buildSystemPrompt, generateConversationTitle } from './sonmez/promptBuilder';
+import { saveApiKey, loadApiKey, hasApiKey, getModel, setModel, getBaseUrl, setBaseUrl, getThinkingEnabled, setThinkingEnabled } from './sonmez/apiKeyStore';
+import { getTodaysQuote, getRandomQuote, type Quote } from './sonmez/quotes';
+import { randomUUID } from 'crypto';
 
 let mainWindow: BrowserWindow | null = null;
 let taskOnlyWindow: BrowserWindow | null = null;
@@ -500,3 +505,155 @@ ipcMain.on('refresh-tasks', () => {
 ipcMain.on('set-native-theme', (_event, isDark: boolean) => {
   applyNativeTheme(isDark);
 });
+
+// =====================================================
+// Sonmez 顾问 IPC
+// =====================================================
+
+// --- 会话与消息 CRUD ---
+
+ipcMain.handle('sonmez-get-conversations', async () => {
+  return await getSonmezConversations();
+});
+
+ipcMain.handle('sonmez-create-conversation', async (_event, title: string) => {
+  return await createSonmezConversation(title || '');
+});
+
+ipcMain.handle('sonmez-rename-conversation', async (_event, id: string, title: string) => {
+  await renameSonmezConversation(id, title);
+});
+
+ipcMain.handle('sonmez-delete-conversation', async (_event, id: string) => {
+  await deleteSonmezConversation(id);
+});
+
+ipcMain.handle('sonmez-clear-conversations', async () => {
+  await clearAllSonmezConversations();
+});
+
+ipcMain.handle('sonmez-get-messages', async (_event, conversationId: string) => {
+  return await getSonmezMessages(conversationId);
+});
+
+// --- API Key 与模型配置 ---
+
+ipcMain.handle('sonmez-has-api-key', () => {
+  return hasApiKey();
+});
+
+ipcMain.handle('sonmez-save-api-key', (_event, apiKey: string) => {
+  saveApiKey(apiKey || '');
+});
+
+ipcMain.handle('sonmez-get-api-key-masked', () => {
+  const key = loadApiKey();
+  if (!key) return '';
+  // 只返回末尾 4 位用于展示
+  if (key.length <= 4) return '****';
+  return `****${key.slice(-4)}`;
+});
+
+ipcMain.handle('sonmez-get-model', () => getModel());
+ipcMain.handle('sonmez-set-model', (_event, model: string) => setModel(model));
+ipcMain.handle('sonmez-get-base-url', () => getBaseUrl());
+ipcMain.handle('sonmez-set-base-url', (_event, baseUrl: string) => setBaseUrl(baseUrl));
+ipcMain.handle('sonmez-get-thinking-enabled', () => getThinkingEnabled());
+ipcMain.handle('sonmez-set-thinking-enabled', (_event, enabled: boolean) => setThinkingEnabled(enabled));
+
+// ===== 每日金句（首页 Banner 与 Sonmez 空状态使用）=====
+ipcMain.handle('sonmez-get-daily-quote', (): Quote => getTodaysQuote());
+ipcMain.handle('sonmez-get-random-quote', (_event, exclude?: Quote): Quote => getRandomQuote(exclude));
+
+// --- 发送消息（流式） ---
+
+/**
+ * 发送一条用户消息并流式获取 Sonmez 的回复
+ *
+ * 流程：
+ * 1. 把用户消息存入 DB
+ * 2. 构建 system prompt（含动态知识检索）
+ * 3. 取最近 N 轮历史消息作为上下文
+ * 4. 调用 DeepSeek 流式 API，通过 webContents.send 推送 chunks
+ * 5. 流结束后把 assistant 回复存入 DB，并通知渲染进程完成
+ */
+ipcMain.handle(
+  'sonmez-send-message',
+  async (event, payload: { conversationId: string; message: string }) => {
+    const { conversationId, message } = payload;
+    if (!conversationId || !message) {
+      throw new Error('conversationId 和 message 不能为空');
+    }
+
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+
+    // 1. 持久化用户消息
+    await addSonmezMessage(conversationId, 'user', message);
+
+    // 2. 如果是首条消息，用消息内容生成会话标题
+    try {
+      const conversations = await getSonmezConversations();
+      const conv = conversations.find((c) => c.id === conversationId);
+      if (conv && !conv.title) {
+        const title = generateConversationTitle(message);
+        await renameSonmezConversation(conversationId, title);
+      }
+    } catch (err) {
+      // 标题生成失败不阻断主流程
+      console.warn('[Sonmez] Failed to set conversation title:', err);
+    }
+
+    // 3. 构建 LLM messages
+    const systemPrompt = buildSystemPrompt(message);
+    const history = await getSonmezHistoryForLLM(conversationId, 10);
+
+    const llmMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+    ];
+
+    // 4. 生成 requestId 并通知渲染进程"开始"
+    const requestId = randomUUID();
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      senderWindow.webContents.send('sonmez-stream-start', { requestId, conversationId });
+    }
+
+    // 5. 流式调用
+    return new Promise<void>((resolve) => {
+      streamChatCompletion(llmMessages, senderWindow, requestId, {
+        onChunk: (_delta) => {
+          // chunks 已通过 webContents.send 推送，这里无需额外处理
+        },
+        onDone: async (fullText, fullReasoning) => {
+          try {
+            if (fullText) {
+              await addSonmezMessage(conversationId, 'assistant', fullText);
+            }
+            if (senderWindow && !senderWindow.isDestroyed()) {
+              senderWindow.webContents.send('sonmez-stream-done', {
+                requestId,
+                conversationId,
+                fullText,
+                fullReasoning,
+              });
+            }
+          } catch (err) {
+            console.error('[Sonmez] Failed to persist assistant message:', err);
+          }
+          resolve();
+        },
+        onError: (err) => {
+          console.error('[Sonmez] Stream error:', err);
+          if (senderWindow && !senderWindow.isDestroyed()) {
+            senderWindow.webContents.send('sonmez-stream-error', {
+              requestId,
+              conversationId,
+              error: err.message,
+            });
+          }
+          resolve();
+        },
+      });
+    });
+  }
+);

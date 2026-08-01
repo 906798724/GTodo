@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { ConfirmModal } from './ConfirmModal';
 import { Task } from '../types';
 
 interface SummaryModalProps {
@@ -34,6 +35,7 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
   const [content, setContent] = useState(initialContent);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [date, setDate] = useState(initialDate || todayStr);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -61,15 +63,20 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!content.trim() || deleting || !onDelete) return;
-    if (!window.confirm('确定要删除这条总结吗？此操作不可撤销。')) return;
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!onDelete) return;
     setDeleting(true);
     try {
       await onDelete(date);
     } finally {
       setDeleting(false);
     }
+    setConfirmOpen(false);
   };
 
   return (
@@ -158,6 +165,15 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           </button>
         </div>
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="删除"
+        message="确定要删除这条总结吗？此操作不可撤销。"
+        confirmText="删除"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmOpen(false)}
+      />
     </div>
   );
 };

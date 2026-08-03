@@ -1,0 +1,555 @@
+/* =====================================================
+ * 数字人顾问（AdvisorPage，Sonmez / Bob 共用）
+ * 兼容层：所有原 .sonmez-* 类名都映射到 .advisor-* 样式
+ * ===================================================== */
+
+/* Sonmez 旧类 → Advisor 新类 别名 */
+.sonmez-page { all: unset; }
+.sonmez-page, .advisor-page {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.sonmez-sidebar, .advisor-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sonmez-sidebar-header, .advisor-sidebar-header {
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.sonmez-new-btn, .advisor-new-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--advisor-theme, var(--accent-primary));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--advisor-theme, var(--accent-primary));
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.15s;
+}
+.sonmez-new-btn:hover, .advisor-new-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.sonmez-clear-btn, .advisor-clear-btn {
+  padding: 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.sonmez-clear-btn:hover, .advisor-clear-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--color-danger);
+}
+
+.sonmez-conv-list, .advisor-conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.sonmez-conv-empty, .advisor-conv-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.sonmez-conv-item, .advisor-conv-item {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s;
+}
+.sonmez-conv-item:hover, .advisor-conv-item:hover {
+  background: var(--bg-tertiary);
+}
+.sonmez-conv-item.active, .advisor-conv-item.active {
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+}
+.sonmez-conv-item.active .sonmez-conv-action,
+.sonmez-conv-item.active .advisor-conv-action,
+.advisor-conv-item.active .advisor-conv-action {
+  color: white;
+}
+
+.sonmez-conv-title, .advisor-conv-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sonmez-conv-actions, .advisor-conv-actions {
+  display: none;
+  gap: 2px;
+}
+.sonmez-conv-item:hover .sonmez-conv-actions,
+.sonmez-conv-item.active .sonmez-conv-actions,
+.advisor-conv-item:hover .advisor-conv-actions,
+.advisor-conv-item.active .advisor-conv-actions {
+  display: flex;
+}
+
+.sonmez-conv-action, .advisor-conv-action {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.sonmez-conv-action:hover, .advisor-conv-action:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+
+/* 对话主区 */
+.sonmez-chat, .advisor-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sonmez-chat-header, .advisor-chat-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-secondary);
+}
+
+.sonmez-chat-title, .advisor-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sonmez-avatar, .advisor-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.sonmez-name, .advisor-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.sonmez-subtitle, .advisor-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.sonmez-status, .advisor-status {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+.sonmez-status-ok, .advisor-status-ok {
+  background: var(--bg-tertiary);
+  color: var(--color-success);
+}
+.sonmez-status-warn, .advisor-status-warn {
+  background: var(--bg-tertiary);
+  color: var(--color-warning);
+  border: none;
+  cursor: pointer;
+}
+
+.sonmez-messages, .advisor-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sonmez-welcome, .advisor-welcome {
+  max-width: 640px;
+  margin: 40px auto;
+  text-align: center;
+  padding: 32px 24px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+}
+.sonmez-welcome-avatar, .advisor-welcome-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 22px;
+  margin: 0 auto 16px;
+}
+.sonmez-welcome h2, .advisor-welcome h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  color: var(--text-primary);
+}
+.sonmez-welcome p, .advisor-welcome p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.sonmez-examples, .advisor-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.sonmez-example-item, .advisor-example-item {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.5;
+  transition: all 0.15s;
+}
+.sonmez-example-item:hover, .advisor-example-item:hover {
+  border-color: var(--advisor-theme, var(--accent-primary));
+  background: var(--bg-tertiary);
+}
+.sonmez-example-item:disabled, .advisor-example-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sonmez-msg, .advisor-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 800px;
+}
+.sonmez-msg-user, .advisor-msg-user {
+  margin-left: auto;
+  flex-direction: row-reverse;
+}
+
+.sonmez-msg-avatar, .advisor-msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.sonmez-msg-assistant .sonmez-msg-avatar,
+.advisor-msg-assistant .advisor-msg-avatar {
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+}
+
+.sonmez-msg-body, .advisor-msg-body {
+  flex: 1;
+  min-width: 0;
+}
+.sonmez-msg-user .sonmez-msg-body,
+.advisor-msg-user .advisor-msg-body {
+  text-align: right;
+}
+
+.sonmez-msg-meta, .advisor-msg-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.sonmez-msg-content, .advisor-msg-content {
+  background: var(--bg-secondary);
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.7;
+  word-wrap: break-word;
+  display: inline-block;
+  max-width: 100%;
+}
+.sonmez-msg-user .sonmez-msg-content,
+.advisor-msg-user .advisor-msg-content {
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  border-color: transparent;
+}
+.sonmez-msg-text, .advisor-msg-text {
+  white-space: pre-wrap;
+}
+
+.sonmez-reasoning, .advisor-reasoning {
+  margin-bottom: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.sonmez-reasoning-summary, .advisor-reasoning-summary {
+  cursor: pointer;
+  font-weight: 500;
+  user-select: none;
+}
+.sonmez-reasoning-content, .advisor-reasoning-content {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.sonmez-typing, .advisor-typing {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0;
+}
+.sonmez-typing span, .advisor-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: advisor-typing 1.2s infinite ease-in-out;
+}
+.sonmez-typing span:nth-child(2), .advisor-typing span:nth-child(2) { animation-delay: 0.15s; }
+.sonmez-typing span:nth-child(3), .advisor-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes advisor-typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+
+.sonmez-error, .advisor-error {
+  padding: 10px 16px;
+  background: rgba(220, 53, 69, 0.1);
+  color: var(--color-danger);
+  font-size: 13px;
+  text-align: center;
+  border-top: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+.sonmez-input-area, .advisor-input-area {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.sonmez-input, .advisor-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  min-height: 40px;
+  max-height: 200px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sonmez-input:focus, .advisor-input:focus {
+  border-color: var(--advisor-theme, var(--accent-primary));
+}
+.sonmez-input:disabled, .advisor-input:disabled {
+  opacity: 0.5;
+}
+.sonmez-send-btn, .advisor-send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: none;
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+}
+.sonmez-send-btn:hover:not(:disabled),
+.advisor-send-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.sonmez-send-btn:disabled, .advisor-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* =====================================================
+ * 数字人顾问入口页（AdvisorEntryPage）
+ * ===================================================== */
+.advisor-entry-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+.advisor-entry-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.advisor-entry-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+.advisor-entry-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.advisor-entry-divider {
+  margin-top: 16px;
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: var(--text-tertiary);
+  font-style: italic;
+  opacity: 0.7;
+}
+.advisor-entry-divider::before,
+.advisor-entry-divider::after {
+  content: " · ";
+  margin: 0 8px;
+  opacity: 0.5;
+}
+.advisor-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 360px));
+  gap: 20px;
+  max-width: 760px;
+  width: 100%;
+}
+.advisor-entry-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.advisor-entry-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--advisor-theme, var(--accent-primary));
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+}
+.advisor-entry-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.advisor-entry-card-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.advisor-entry-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.advisor-entry-card-tags {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.advisor-entry-card-tags li {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.advisor-entry-btn {
+  margin-top: auto;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--advisor-theme, var(--accent-primary));
+  color: white;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.advisor-entry-btn:hover {
+  opacity: 0.85;
+}

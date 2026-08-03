@@ -28,17 +28,19 @@ export interface StreamCallbacks {
  * @param messages 完整对话消息（含 system prompt）
  * @param senderWindow 用于推送流式片段到渲染进程的窗口
  * @param requestId 本次请求的唯一 ID（渲染进程用于关联流）
+ * @param eventPrefix 事件名前缀（如 'sonmez' / 'bob'），用于区分多角色
  * @param callbacks 回调
  */
 export async function streamChatCompletion(
   messages: ChatMessage[],
   senderWindow: BrowserWindow | null,
   requestId: string,
+  eventPrefix: 'sonmez' | 'bob' = 'sonmez',
   callbacks: StreamCallbacks
 ): Promise<void> {
   const apiKey = loadApiKey();
   if (!apiKey) {
-    const err = new Error('未配置 DeepSeek API Key，请到「设置 → Sonmez」中填写');
+    const err = new Error('未配置 DeepSeek API Key，请到「设置 → 数字人顾问」中填写');
     callbacks.onError(err);
     return;
   }
@@ -142,7 +144,7 @@ export async function streamChatCompletion(
                 callbacks.onReasoningChunk(reasoningDelta);
               }
               if (senderWindow && !senderWindow.isDestroyed()) {
-                senderWindow.webContents.send('sonmez-stream-chunk', {
+                senderWindow.webContents.send(`${eventPrefix}-stream-chunk`, {
                   requestId,
                   delta: '',
                   reasoning: reasoningDelta,
@@ -156,7 +158,7 @@ export async function streamChatCompletion(
               fullText += contentDelta;
               callbacks.onChunk(contentDelta);
               if (senderWindow && !senderWindow.isDestroyed()) {
-                senderWindow.webContents.send('sonmez-stream-chunk', {
+                senderWindow.webContents.send(`${eventPrefix}-stream-chunk`, {
                   requestId,
                   delta: contentDelta,
                   reasoning: '',
@@ -165,7 +167,7 @@ export async function streamChatCompletion(
             }
           } catch (err) {
             // 单条解析失败不中断整体
-            console.warn('[Sonmez] Failed to parse SSE chunk:', data, err);
+            console.warn(`[${eventPrefix}] Failed to parse SSE chunk:`, data, err);
           }
         }
       }

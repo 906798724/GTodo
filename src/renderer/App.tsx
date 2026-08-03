@@ -16,9 +16,12 @@ import { TagsPage } from './components/TagsPage';
 import { SettingsPage } from './components/SettingsPage';
 import { CompletedPage } from './components/CompletedPage';
 import { SonmezAdvisorPage } from './components/SonmezAdvisorPage';
+import { AdvisorPage, SONMEZ_CONFIG, BOB_CONFIG } from './components/AdvisorPage';
+import { AdvisorEntryPage } from './components/AdvisorEntryPage';
 import { DailyQuoteBanner } from './components/DailyQuoteBanner';
 import { Task, Tag, TaskStatus, MAIN_COLUMNS } from './types';
 import './styles/main.css';
+import './styles/advisor-extra.css';
 
 declare global {
   interface Window {
@@ -72,12 +75,14 @@ declare global {
         getConversations: () => Promise<Array<{
           id: string;
           title: string;
+          advisor_type: 'sonmez' | 'bob';
           created_at: string;
           updated_at: string;
         }>>;
         createConversation: (title: string) => Promise<{
           id: string;
           title: string;
+          advisor_type: 'sonmez' | 'bob';
           created_at: string;
           updated_at: string;
         }>;
@@ -87,6 +92,7 @@ declare global {
         getMessages: (conversationId: string) => Promise<Array<{
           id: string;
           conversation_id: string;
+          advisor_type: 'sonmez' | 'bob';
           role: 'user' | 'assistant' | 'system';
           content: string;
           created_at: string;
@@ -107,6 +113,39 @@ declare global {
         setThinkingEnabled: (enabled: boolean) => Promise<void>;
         getDailyQuote: () => Promise<{ text: string; book: string; chapterTitle: string }>;
         getRandomQuote: (exclude?: { text: string; book: string; chapterTitle: string }) => Promise<{ text: string; book: string; chapterTitle: string }>;
+      };
+      // Bob 大叔角色
+      bob: {
+        getConversations: () => Promise<Array<{
+          id: string;
+          title: string;
+          advisor_type: 'sonmez' | 'bob';
+          created_at: string;
+          updated_at: string;
+        }>>;
+        createConversation: (title: string) => Promise<{
+          id: string;
+          title: string;
+          advisor_type: 'sonmez' | 'bob';
+          created_at: string;
+          updated_at: string;
+        }>;
+        renameConversation: (id: string, title: string) => Promise<void>;
+        deleteConversation: (id: string) => Promise<void>;
+        clearConversations: () => Promise<void>;
+        getMessages: (conversationId: string) => Promise<Array<{
+          id: string;
+          conversation_id: string;
+          advisor_type: 'sonmez' | 'bob';
+          role: 'user' | 'assistant' | 'system';
+          content: string;
+          created_at: string;
+        }>>;
+        sendMessage: (conversationId: string, message: string) => Promise<void>;
+        onStreamStart: (callback: (payload: { requestId: string; conversationId: string }) => void) => () => void;
+        onStreamChunk: (callback: (payload: { requestId: string; delta: string; reasoning: string }) => void) => () => void;
+        onStreamDone: (callback: (payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }) => void) => () => void;
+        onStreamError: (callback: (payload: { requestId: string; conversationId: string; error: string }) => void) => () => void;
       };
     };
   }
@@ -151,7 +190,12 @@ const App: React.FC = () => {
     open: false,
     taskId: null,
   });
-  const [currentPage, setCurrentPage] = useState<'home' | 'completed' | 'okr' | 'special' | 'archived' | 'tags' | 'settings' | 'sonmez'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'completed' | 'okr' | 'special' | 'archived' | 'tags' | 'settings' | 'sonmez' | 'bob' | 'advisor-entry'>('home');
+  // 进入 sonmez / bob 时，先显示顾问选择入口页，再进入具体角色
+  const [advisorStarted, setAdvisorStarted] = useState<{ sonmez: boolean; bob: boolean }>({
+    sonmez: false,
+    bob: false,
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gtdFlowOpen, setGtdFlowOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -677,16 +721,19 @@ const App: React.FC = () => {
           </nav>
           <div className="sidebar-divider"></div>
           <button
-            className={`sidebar-item ${currentPage === 'sonmez' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('sonmez')}
-            title="Sonmez"
+            className={`sidebar-item ${currentPage === 'advisor-entry' || currentPage === 'sonmez' || currentPage === 'bob' ? 'active' : ''}`}
+            onClick={() => {
+              setCurrentPage('advisor-entry');
+              setAdvisorStarted({ sonmez: false, bob: false });
+            }}
+            title="问道"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="8" cy="8" r="3.5"/>
               <path d="M3 20c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
               <path d="M14 5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2.5L14 14V6a1 1 0 0 1 1-1z"/>
             </svg>
-            {!sidebarCollapsed && <span>Sonmez</span>}
+            {!sidebarCollapsed && <span>问道</span>}
           </button>
           <button
             className={`sidebar-item ${currentPage === 'tags' ? 'active' : ''}`}
@@ -770,8 +817,22 @@ const App: React.FC = () => {
             <OkrPage />
           )}
 
+          {currentPage === 'advisor-entry' && (
+            <AdvisorEntryPage
+              advisors={[SONMEZ_CONFIG, BOB_CONFIG]}
+              onSelectAdvisor={(type) => {
+                setCurrentPage(type);
+                setAdvisorStarted((prev) => ({ ...prev, [type]: true }));
+              }}
+            />
+          )}
+
           {currentPage === 'sonmez' && (
             <SonmezAdvisorPage onGoToSettings={() => setCurrentPage('settings')} />
+          )}
+
+          {currentPage === 'bob' && (
+            <AdvisorPage config={BOB_CONFIG} onGoToSettings={() => setCurrentPage('settings')} />
           )}
 
           {currentPage === 'special' && (

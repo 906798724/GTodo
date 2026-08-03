@@ -4,6 +4,7 @@ import fs from 'fs';
 import { initDatabase, getTasks, getAllCompletedTasks, createTask, updateTask, deleteTask, getSummary, getMonthSummaries, upsertSummary, deleteSummary, getObjectives, createObjective, updateObjective, deleteObjective, getKeyResults, getAllKeyResults, createKeyResult, updateKeyResult, deleteKeyResult, getTags, createTag, updateTag, deleteTag, setTaskTags, archiveDoneTasksForDate, getTasksByArchiveDate, getMonthArchivedTaskCount, getSpecials, getSpecial, createSpecial, updateSpecial, deleteSpecial, getTasksBySpecial, setTaskSpecials, getMilestones, createMilestone, updateMilestone, deleteMilestone, getTaskSpecialIds, getSonmezConversations, createSonmezConversation, renameSonmezConversation, deleteSonmezConversation, clearAllSonmezConversations, getSonmezMessages, addSonmezMessage, getSonmezHistoryForLLM } from './database';
 import { streamChatCompletion } from './sonmez/deepseekClient';
 import { buildSystemPrompt, generateConversationTitle } from './sonmez/promptBuilder';
+import { buildBobSystemPrompt } from './sonmez/bobPromptBuilder';
 import { saveApiKey, loadApiKey, hasApiKey, getModel, setModel, getBaseUrl, setBaseUrl, getThinkingEnabled, setThinkingEnabled } from './sonmez/apiKeyStore';
 import { getTodaysQuote, getRandomQuote, type Quote } from './sonmez/quotes';
 import { randomUUID } from 'crypto';
@@ -507,34 +508,54 @@ ipcMain.on('set-native-theme', (_event, isDark: boolean) => {
 });
 
 // =====================================================
-// Sonmez 顾问 IPC
+// 数字人顾问 IPC（支持 Sonmez / Bob 大叔）
 // =====================================================
 
-// --- 会话与消息 CRUD ---
+type AdvisorType = 'sonmez' | 'bob';
 
-ipcMain.handle('sonmez-get-conversations', async () => {
-  return await getSonmezConversations();
-});
+// --- 会话与消息 CRUD（支持按角色过滤） ---
 
-ipcMain.handle('sonmez-create-conversation', async (_event, title: string) => {
-  return await createSonmezConversation(title || '');
-});
+ipcMain.handle(
+  'advisor-get-conversations',
+  async (_event, advisorType: AdvisorType = 'sonmez') => {
+    return await getSonmezConversations(advisorType);
+  }
+);
 
-ipcMain.handle('sonmez-rename-conversation', async (_event, id: string, title: string) => {
-  await renameSonmezConversation(id, title);
-});
+ipcMain.handle(
+  'advisor-create-conversation',
+  async (_event, advisorType: AdvisorType = 'sonmez', title: string = '') => {
+    return await createSonmezConversation(title || '', advisorType);
+  }
+);
 
-ipcMain.handle('sonmez-delete-conversation', async (_event, id: string) => {
-  await deleteSonmezConversation(id);
-});
+ipcMain.handle(
+  'advisor-rename-conversation',
+  async (_event, _advisorType: AdvisorType, id: string, title: string) => {
+    await renameSonmezConversation(id, title);
+  }
+);
 
-ipcMain.handle('sonmez-clear-conversations', async () => {
-  await clearAllSonmezConversations();
-});
+ipcMain.handle(
+  'advisor-delete-conversation',
+  async (_event, _advisorType: AdvisorType, id: string) => {
+    await deleteSonmezConversation(id);
+  }
+);
 
-ipcMain.handle('sonmez-get-messages', async (_event, conversationId: string) => {
-  return await getSonmezMessages(conversationId);
-});
+ipcMain.handle(
+  'advisor-clear-conversations',
+  async (_event, advisorType: AdvisorType = 'sonmez') => {
+    await clearAllSonmezConversations(advisorType);
+  }
+);
+
+ipcMain.handle(
+  'advisor-get-messages',
+  async (_event, _advisorType: AdvisorType, conversationId: string) => {
+    return await getSonmezMessages(conversationId);
+  }
+);
 
 // --- API Key 与模型配置 ---
 
@@ -561,26 +582,33 @@ ipcMain.handle('sonmez-set-base-url', (_event, baseUrl: string) => setBaseUrl(ba
 ipcMain.handle('sonmez-get-thinking-enabled', () => getThinkingEnabled());
 ipcMain.handle('sonmez-set-thinking-enabled', (_event, enabled: boolean) => setThinkingEnabled(enabled));
 
-// ===== 每日金句（首页 Banner 与 Sonmez 空状态使用）=====
+// ===== 每日金句（首页 Banner 使用）=====
 ipcMain.handle('sonmez-get-daily-quote', (): Quote => getTodaysQuote());
 ipcMain.handle('sonmez-get-random-quote', (_event, exclude?: Quote): Quote => getRandomQuote(exclude));
 
-// --- 发送消息（流式） ---
+// --- 发送消息（流式，支持多角色） ---
 
 /**
- * 发送一条用户消息并流式获取 Sonmez 的回复
+ * 发送一条用户消息并流式获取顾问的回复
  *
  * 流程：
- * 1. 把用户消息存入 DB
- * 2. 构建 system prompt（含动态知识检索）
+ * 1. 把用户消息存入 DB（带 advisor_type）
+ * 2. 构建 system prompt（按角色选择 promptBuilder）
  * 3. 取最近 N 轮历史消息作为上下文
  * 4. 调用 DeepSeek 流式 API，通过 webContents.send 推送 chunks
  * 5. 流结束后把 assistant 回复存入 DB，并通知渲染进程完成
  */
 ipcMain.handle(
-  'sonmez-send-message',
-  async (event, payload: { conversationId: string; message: string }) => {
-    const { conversationId, message } = payload;
+  'advisor-send-message',
+  async (
+    event,
+    payload: {
+      advisorType: AdvisorType;
+      conversationId: string;
+      message: string;
+    }
+  ) => {
+    const { advisorType = 'sonmez', conversationId, message } = payload;
     if (!conversationId || !message) {
       throw new Error('conversationId 和 message 不能为空');
     }
@@ -588,11 +616,11 @@ ipcMain.handle(
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
 
     // 1. 持久化用户消息
-    await addSonmezMessage(conversationId, 'user', message);
+    await addSonmezMessage(conversationId, 'user', message, advisorType);
 
     // 2. 如果是首条消息，用消息内容生成会话标题
     try {
-      const conversations = await getSonmezConversations();
+      const conversations = await getSonmezConversations(advisorType);
       const conv = conversations.find((c) => c.id === conversationId);
       if (conv && !conv.title) {
         const title = generateConversationTitle(message);
@@ -600,11 +628,12 @@ ipcMain.handle(
       }
     } catch (err) {
       // 标题生成失败不阻断主流程
-      console.warn('[Sonmez] Failed to set conversation title:', err);
+      console.warn(`[${advisorType}] Failed to set conversation title:`, err);
     }
 
-    // 3. 构建 LLM messages
-    const systemPrompt = buildSystemPrompt(message);
+    // 3. 构建 LLM messages（按角色选择 promptBuilder）
+    const systemPrompt =
+      advisorType === 'bob' ? buildBobSystemPrompt(message) : buildSystemPrompt(message);
     const history = await getSonmezHistoryForLLM(conversationId, 10);
 
     const llmMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
@@ -615,22 +644,22 @@ ipcMain.handle(
     // 4. 生成 requestId 并通知渲染进程"开始"
     const requestId = randomUUID();
     if (senderWindow && !senderWindow.isDestroyed()) {
-      senderWindow.webContents.send('sonmez-stream-start', { requestId, conversationId });
+      senderWindow.webContents.send(`${advisorType}-stream-start`, { requestId, conversationId });
     }
 
     // 5. 流式调用
     return new Promise<void>((resolve) => {
-      streamChatCompletion(llmMessages, senderWindow, requestId, {
+      streamChatCompletion(llmMessages, senderWindow, requestId, advisorType, {
         onChunk: (_delta) => {
           // chunks 已通过 webContents.send 推送，这里无需额外处理
         },
         onDone: async (fullText, fullReasoning) => {
           try {
             if (fullText) {
-              await addSonmezMessage(conversationId, 'assistant', fullText);
+              await addSonmezMessage(conversationId, 'assistant', fullText, advisorType);
             }
             if (senderWindow && !senderWindow.isDestroyed()) {
-              senderWindow.webContents.send('sonmez-stream-done', {
+              senderWindow.webContents.send(`${advisorType}-stream-done`, {
                 requestId,
                 conversationId,
                 fullText,
@@ -638,14 +667,14 @@ ipcMain.handle(
               });
             }
           } catch (err) {
-            console.error('[Sonmez] Failed to persist assistant message:', err);
+            console.error(`[${advisorType}] Failed to persist assistant message:`, err);
           }
           resolve();
         },
         onError: (err) => {
-          console.error('[Sonmez] Stream error:', err);
+          console.error(`[${advisorType}] Stream error:`, err);
           if (senderWindow && !senderWindow.isDestroyed()) {
-            senderWindow.webContents.send('sonmez-stream-error', {
+            senderWindow.webContents.send(`${advisorType}-stream-error`, {
               requestId,
               conversationId,
               error: err.message,

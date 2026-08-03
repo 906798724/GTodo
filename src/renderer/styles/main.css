@@ -3167,11 +3167,27 @@ body[data-mode='task-only'][data-theme='dark'] .modal-btn.save {
 
 /* 标签页面 */
 .tags-page {
-  padding: 20px;
-  width: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+  padding: 20px 24px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) transparent;
+  transition: all 0.3s ease;
+}
+
+.tags-page::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tags-page::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
 }
 
 .tags-page .page-header {
@@ -3203,11 +3219,27 @@ body[data-mode='task-only'][data-theme='dark'] .modal-btn.save {
 
 /* 设置页面 */
 .settings-page {
-  padding: 20px;
-  width: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-primary);
+  padding: 20px 24px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) transparent;
+  transition: all 0.3s ease;
+}
+
+.settings-page::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-page::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
 }
 
 .settings-page .page-header {
@@ -3726,22 +3758,6 @@ body[data-mode='task-only'][data-theme='dark'] .modal-btn.save {
   color: var(--text-tertiary);
   line-height: 1.6;
   margin-bottom: 24px;
-}
-
-.sonmez-quote {
-  margin: 0 0 24px;
-  padding: 14px 18px;
-  background: var(--bg-elevated);
-  border-left: 3px solid var(--accent-primary);
-  border-radius: 6px;
-  text-align: left;
-}
-
-.sonmez-quote-text {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-style: italic;
-  line-height: 1.7;
 }
 
 .sonmez-examples {

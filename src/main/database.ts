@@ -92,7 +92,7 @@ function getDbPath(): string {
 //   1. 增加 SCHEMA_VERSION
 //   2. 在 MIGRATIONS 数组中添加对应的迁移函数
 // 旧的数据库会在启动时自动应用所有未执行的迁移
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 interface Migration {
   fromVersion: number;
@@ -414,6 +414,17 @@ const MIGRATIONS: Migration[] = [
         )
       `);
       db.run(`CREATE INDEX IF NOT EXISTS idx_sonmez_messages_conv ON sonmez_messages(conversation_id)`);
+    },
+  },
+  {
+    fromVersion: 15,
+    toVersion: 16,
+    description: 'Sonmez 顾问支持多角色：sonmez_conversations / sonmez_messages 新增 advisor_type 字段区分 Sonmez / Bob',
+    up: (db: any) => {
+      // 老数据全部标记为 sonmez（保持向后兼容）
+      db.run(`ALTER TABLE sonmez_conversations ADD COLUMN advisor_type TEXT NOT NULL DEFAULT 'sonmez'`);
+      db.run(`ALTER TABLE sonmez_messages ADD COLUMN advisor_type TEXT NOT NULL DEFAULT 'sonmez'`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_sonmez_messages_type_conv ON sonmez_messages(advisor_type, conversation_id)`);
     },
   },
 ];
@@ -1530,6 +1541,7 @@ export async function setTaskTags(taskId: number, tagIds: number[]): Promise<voi
 export interface SonmezConversation {
   id: string;
   title: string;
+  advisor_type: 'sonmez' | 'bob';
   created_at: string;
   updated_at: string;
 }
@@ -1537,6 +1549,7 @@ export interface SonmezConversation {
 export interface SonmezMessage {
   id: string;
   conversation_id: string;
+  advisor_type: 'sonmez' | 'bob';
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: string;
@@ -1555,32 +1568,37 @@ function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** 获取所有会话（按更新时间倒序） */
-export async function getSonmezConversations(): Promise<SonmezConversation[]> {
+/** 获取所有会话（按更新时间倒序，按 advisor_type 过滤） */
+export async function getSonmezConversations(advisorType: 'sonmez' | 'bob' = 'sonmez'): Promise<SonmezConversation[]> {
   if (!db) throw new Error('Database not initialized');
   const result = db.exec(
-    'SELECT id, title, created_at, updated_at FROM sonmez_conversations ORDER BY updated_at DESC, id DESC'
+    'SELECT id, title, advisor_type, created_at, updated_at FROM sonmez_conversations WHERE advisor_type = ? ORDER BY updated_at DESC, id DESC',
+    [advisorType]
   );
   if (result.length === 0) return [];
   return result[0].values.map((row: any[]) => ({
     id: String(row[0]),
     title: String(row[1] || ''),
-    created_at: String(row[2]),
-    updated_at: String(row[3]),
+    advisor_type: String(row[2]) as 'sonmez' | 'bob',
+    created_at: String(row[3]),
+    updated_at: String(row[4]),
   }));
 }
 
 /** 创建会话 */
-export async function createSonmezConversation(title: string = ''): Promise<SonmezConversation> {
+export async function createSonmezConversation(
+  title: string = '',
+  advisorType: 'sonmez' | 'bob' = 'sonmez'
+): Promise<SonmezConversation> {
   if (!db) throw new Error('Database not initialized');
   const id = genId();
   const now = getLocalTimestamp();
   db.run(
-    'INSERT INTO sonmez_conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
-    [id, title, now, now]
+    'INSERT INTO sonmez_conversations (id, title, advisor_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    [id, title, advisorType, now, now]
   );
   saveDatabase();
-  return { id, title, created_at: now, updated_at: now };
+  return { id, title, advisor_type: advisorType, created_at: now, updated_at: now };
 }
 
 /** 重命名会话 */
@@ -1600,11 +1618,11 @@ export async function deleteSonmezConversation(id: string): Promise<void> {
   saveDatabase();
 }
 
-/** 清空所有会话 */
-export async function clearAllSonmezConversations(): Promise<void> {
+/** 清空指定角色的所有会话 */
+export async function clearAllSonmezConversations(advisorType: 'sonmez' | 'bob' = 'sonmez'): Promise<void> {
   if (!db) throw new Error('Database not initialized');
-  db.run('DELETE FROM sonmez_messages');
-  db.run('DELETE FROM sonmez_conversations');
+  db.run('DELETE FROM sonmez_messages WHERE advisor_type = ?', [advisorType]);
+  db.run('DELETE FROM sonmez_conversations WHERE advisor_type = ?', [advisorType]);
   saveDatabase();
 }
 
@@ -1612,16 +1630,17 @@ export async function clearAllSonmezConversations(): Promise<void> {
 export async function getSonmezMessages(conversationId: string): Promise<SonmezMessage[]> {
   if (!db) throw new Error('Database not initialized');
   const result = db.exec(
-    'SELECT id, conversation_id, role, content, created_at FROM sonmez_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC',
+    'SELECT id, conversation_id, advisor_type, role, content, created_at FROM sonmez_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC',
     [conversationId]
   );
   if (result.length === 0) return [];
   return result[0].values.map((row: any[]) => ({
     id: String(row[0]),
     conversation_id: String(row[1]),
-    role: String(row[2]) as SonmezMessage['role'],
-    content: String(row[3] || ''),
-    created_at: String(row[4]),
+    advisor_type: String(row[2]) as 'sonmez' | 'bob',
+    role: String(row[3]) as SonmezMessage['role'],
+    content: String(row[4] || ''),
+    created_at: String(row[5]),
   }));
 }
 
@@ -1629,19 +1648,20 @@ export async function getSonmezMessages(conversationId: string): Promise<SonmezM
 export async function addSonmezMessage(
   conversationId: string,
   role: SonmezMessage['role'],
-  content: string
+  content: string,
+  advisorType: 'sonmez' | 'bob' = 'sonmez'
 ): Promise<SonmezMessage> {
   if (!db) throw new Error('Database not initialized');
   const id = genId();
   const now = getLocalTimestamp();
   db.run(
-    'INSERT INTO sonmez_messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
-    [id, conversationId, role, content, now]
+    'INSERT INTO sonmez_messages (id, conversation_id, advisor_type, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, conversationId, advisorType, role, content, now]
   );
   // 更新会话的 updated_at
   db.run('UPDATE sonmez_conversations SET updated_at = ? WHERE id = ?', [now, conversationId]);
   saveDatabase();
-  return { id, conversation_id: conversationId, role, content, created_at: now };
+  return { id, conversation_id: conversationId, advisor_type: advisorType, role, content, created_at: now };
 }
 
 /**

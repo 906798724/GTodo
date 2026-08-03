@@ -65,21 +65,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenTaskModal: (callback: () => void) => {
     ipcRenderer.on('open-task-modal', callback);
   },
-  // ===== Sonmez 顾问 =====
+  // ===== 数字人顾问（支持 Sonmez / Bob 大叔）=====
   sonmez: {
-    // 会话 CRUD
-    getConversations: () => ipcRenderer.invoke('sonmez-get-conversations'),
-    createConversation: (title: string) => ipcRenderer.invoke('sonmez-create-conversation', title),
+    // 会话 CRUD（兼容旧 API，默认 sonmez）
+    getConversations: () => ipcRenderer.invoke('advisor-get-conversations', 'sonmez'),
+    createConversation: (title: string) =>
+      ipcRenderer.invoke('advisor-create-conversation', 'sonmez', title),
     renameConversation: (id: string, title: string) =>
-      ipcRenderer.invoke('sonmez-rename-conversation', id, title),
-    deleteConversation: (id: string) => ipcRenderer.invoke('sonmez-delete-conversation', id),
-    clearConversations: () => ipcRenderer.invoke('sonmez-clear-conversations'),
+      ipcRenderer.invoke('advisor-rename-conversation', 'sonmez', id, title),
+    deleteConversation: (id: string) =>
+      ipcRenderer.invoke('advisor-delete-conversation', 'sonmez', id),
+    clearConversations: () => ipcRenderer.invoke('advisor-clear-conversations', 'sonmez'),
     getMessages: (conversationId: string) =>
-      ipcRenderer.invoke('sonmez-get-messages', conversationId),
+      ipcRenderer.invoke('advisor-get-messages', 'sonmez', conversationId),
     // 发送消息（流式）
     sendMessage: (conversationId: string, message: string) =>
-      ipcRenderer.invoke('sonmez-send-message', { conversationId, message }),
-    // 流式事件监听
+      ipcRenderer.invoke('advisor-send-message', {
+        advisorType: 'sonmez',
+        conversationId,
+        message,
+      }),
+    // 流式事件监听（sonmez 前缀）
     onStreamStart: (callback: (payload: { requestId: string; conversationId: string }) => void) => {
       const handler = (_event: unknown, payload: { requestId: string; conversationId: string }) =>
         callback(payload);
@@ -112,7 +118,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('sonmez-stream-error', handler);
       return () => ipcRenderer.removeListener('sonmez-stream-error', handler);
     },
-    // API Key 与模型配置
+    // API Key 与模型配置（共用）
     hasApiKey: () => ipcRenderer.invoke('sonmez-has-api-key'),
     saveApiKey: (apiKey: string) => ipcRenderer.invoke('sonmez-save-api-key', apiKey),
     getApiKeyMasked: () => ipcRenderer.invoke('sonmez-get-api-key-masked'),
@@ -122,9 +128,63 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setBaseUrl: (baseUrl: string) => ipcRenderer.invoke('sonmez-set-base-url', baseUrl),
     getThinkingEnabled: () => ipcRenderer.invoke('sonmez-get-thinking-enabled'),
     setThinkingEnabled: (enabled: boolean) => ipcRenderer.invoke('sonmez-set-thinking-enabled', enabled),
-    // 每日金句：首页 Banner + Sonmez 空状态使用
+    // 每日金句：首页 Banner
     getDailyQuote: () => ipcRenderer.invoke('sonmez-get-daily-quote'),
     getRandomQuote: (exclude?: { text: string; book: string; chapterTitle: string }) =>
       ipcRenderer.invoke('sonmez-get-random-quote', exclude),
+  },
+  // ===== Bob 大叔角色 =====
+  bob: {
+    // 会话 CRUD
+    getConversations: () => ipcRenderer.invoke('advisor-get-conversations', 'bob'),
+    createConversation: (title: string) =>
+      ipcRenderer.invoke('advisor-create-conversation', 'bob', title),
+    renameConversation: (id: string, title: string) =>
+      ipcRenderer.invoke('advisor-rename-conversation', 'bob', id, title),
+    deleteConversation: (id: string) =>
+      ipcRenderer.invoke('advisor-delete-conversation', 'bob', id),
+    clearConversations: () => ipcRenderer.invoke('advisor-clear-conversations', 'bob'),
+    getMessages: (conversationId: string) =>
+      ipcRenderer.invoke('advisor-get-messages', 'bob', conversationId),
+    // 发送消息（流式）
+    sendMessage: (conversationId: string, message: string) =>
+      ipcRenderer.invoke('advisor-send-message', {
+        advisorType: 'bob',
+        conversationId,
+        message,
+      }),
+    // 流式事件监听（bob 前缀）
+    onStreamStart: (callback: (payload: { requestId: string; conversationId: string }) => void) => {
+      const handler = (_event: unknown, payload: { requestId: string; conversationId: string }) =>
+        callback(payload);
+      ipcRenderer.on('bob-stream-start', handler);
+      return () => ipcRenderer.removeListener('bob-stream-start', handler);
+    },
+    onStreamChunk: (callback: (payload: { requestId: string; delta: string; reasoning: string }) => void) => {
+      const handler = (_event: unknown, payload: { requestId: string; delta: string; reasoning: string }) =>
+        callback(payload);
+      ipcRenderer.on('bob-stream-chunk', handler);
+      return () => ipcRenderer.removeListener('bob-stream-chunk', handler);
+    },
+    onStreamDone: (
+      callback: (payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }) => void
+    ) => {
+      const handler = (
+        _event: unknown,
+        payload: { requestId: string; conversationId: string; fullText: string; fullReasoning: string }
+      ) => callback(payload);
+      ipcRenderer.on('bob-stream-done', handler);
+      return () => ipcRenderer.removeListener('bob-stream-done', handler);
+    },
+    onStreamError: (
+      callback: (payload: { requestId: string; conversationId: string; error: string }) => void
+    ) => {
+      const handler = (
+        _event: unknown,
+        payload: { requestId: string; conversationId: string; error: string }
+      ) => callback(payload);
+      ipcRenderer.on('bob-stream-error', handler);
+      return () => ipcRenderer.removeListener('bob-stream-error', handler);
+    },
   },
 });
